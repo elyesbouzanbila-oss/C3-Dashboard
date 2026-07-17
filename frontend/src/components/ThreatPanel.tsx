@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
-import { useDashboard } from '../context/DashboardContext'
+import { useDashboard, useTabSubscription } from '../context/DashboardContext'
 import type { ThreatEvent } from '../types'
 import { EmptyState } from './EmptyState'
 import { Skeleton } from './Skeleton'
@@ -22,6 +22,9 @@ function getRelativeTime(timestamp: string): string {
 
 export function ThreatPanel() {
   const { threats, wsConnected, loading, clearThreats } = useDashboard()
+
+  // Fetch threat history from the vault when this tab becomes active
+  useTabSubscription('threats')
   const onClear = clearThreats
   const [searchQuery, setSearchQuery] = useState('')
   const [severityFilter, setSeverityFilter] = useState<string>('all')
