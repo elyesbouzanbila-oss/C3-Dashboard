@@ -16,6 +16,12 @@ from services.logging_service import get_logger
 
 logger = get_logger(__name__)
 
+# Known-noise Falco rules that fire frequently for expected operations
+# and would flood the threat feed with false positives.
+_NOISY_RULES = frozenset({
+    "Contact K8S API Server From Container",
+})
+
 
 def _parse_json_objects(text: str) -> list[dict]:
     """Parse one or more JSON objects from *text*, handling NDJSON and
@@ -124,30 +130,35 @@ async def falco_webhook(
 
     service = ThreatService(settings)
     count = 0
+    filtered = 0
     for idx, raw in enumerate(decoded_events):
         # Skip non-dict values (numbers, strings, etc.) and empty objects
-        if not isinstance(raw, dict):
-            logger.debug(f"Event {idx}: skipped non-dict type={type(raw).__name__}")
+        if not isinstance(raw, dict) or not raw:
             continue
-        if not raw:
-            logger.debug(f"Event {idx}: skipped empty dict")
+
+        rule = raw.get("rule", "") or ""
+
+        # Suppress known-noise rules that are expected behaviour in a K8s cluster
+        if rule in _NOISY_RULES:
+            filtered += 1
             continue
+
         try:
             event = FalcoEvent(
                 output=raw.get("output", "") or "",
                 priority=raw.get("priority", "") or "",
-                rule=raw.get("rule", "") or "",
+                rule=rule,
                 time=raw.get("time", "") or "",
                 output_fields=raw.get("output_fields", raw.get("fields", {}) or {}),
             )
             await service.publish_falco_event(event)
-            logger.info(f"Event {idx}: published OK — rule={event.rule!r} priority={event.priority!r}")
             count += 1
         except Exception as exc:
-            logger.warning(f"Event {idx}: FAILED — {type(exc).__name__}: {exc}")
+            logger.warning(f"Event {idx}: skipped — {exc}")
 
-    logger.info(f"Falco webhook done: {count}/{len(decoded_events)} events processed")
-    return {"status": "ok", "events_processed": count}
+    if filtered:
+        logger.info(f"Filtered {filtered} noisy event(s) (rules: {', '.join(_NOISY_RULES)})")
+    return {"status": "ok", "events_processed": count, "events_filtered": filtered}
 
 
 @router.websocket("/ws/threats")
