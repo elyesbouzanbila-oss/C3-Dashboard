@@ -1,11 +1,6 @@
 import { useState, useRef, useMemo, useCallback } from 'react'
-import type { Pod, CniTopologyNode, CniTopologyEdge } from '../types'
+import { useDashboard } from '../context/DashboardContext'
 import { Icon } from './Icon'
-
-interface DiagnosticsPanelProps {
-  pods: Pod[]
-  cniTopology: { nodes: CniTopologyNode[]; edges: CniTopologyEdge[] } | null
-}
 
 interface LogEntry {
   id: number
@@ -21,7 +16,8 @@ interface PortOption {
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || ''
 
-export function DiagnosticsPanel({ pods, cniTopology }: DiagnosticsPanelProps) {
+export function DiagnosticsPanel() {
+  const { pods, cniTopology } = useDashboard()
   const [sourceNs, setSourceNs] = useState('default')
   const [sourcePod, setSourcePod] = useState('')
   const [targetType, setTargetType] = useState<'pod' | 'service'>('pod')

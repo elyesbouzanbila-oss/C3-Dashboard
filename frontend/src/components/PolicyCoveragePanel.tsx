@@ -1,17 +1,15 @@
 import { useState, useMemo } from 'react'
-import type { PodCoverageItem, DataSourceStatus } from '../types'
+import { useDashboard, useTabSubscription } from '../context/DashboardContext'
 import { DataSourceBadge } from './DataSourceBadge'
 import { EmptyState } from './EmptyState'
 import { Icon } from './Icon'
 
-interface PolicyCoveragePanelProps {
-  coverage: PodCoverageItem[]
-  status?: DataSourceStatus
-}
-
 type CoverageFilter = 'all' | 'exposed' | 'covered'
 
-export function PolicyCoveragePanel({ coverage, status }: PolicyCoveragePanelProps) {
+export function PolicyCoveragePanel() {
+  useTabSubscription('policies')
+
+  const { policyCoverage: coverage, policiesStatus: status } = useDashboard()
   const [filter, setFilter] = useState<CoverageFilter>('all')
   const [searchQuery, setSearchQuery] = useState('')
 

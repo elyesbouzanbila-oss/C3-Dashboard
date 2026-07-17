@@ -1,17 +1,10 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useDashboard } from '../context/DashboardContext'
 import type { ThreatEvent } from '../types'
 import { EmptyState } from './EmptyState'
 import { Skeleton } from './Skeleton'
 import { getPriorityColor } from '../utils'
 import { Icon } from './Icon'
-
-interface ThreatPanelProps {
-  threats: ThreatEvent[]
-  wsConnected: boolean
-  onClear?: () => void
-  loading?: boolean
-  loadingPods?: boolean
-}
 
 const SEVERITIES = ['Critical', 'High', 'Medium', 'Warning'] as const
 
@@ -27,7 +20,9 @@ function getRelativeTime(timestamp: string): string {
   return new Date(timestamp).toLocaleDateString()
 }
 
-export function ThreatPanel({ threats, wsConnected, onClear, loading }: ThreatPanelProps) {
+export function ThreatPanel() {
+  const { threats, wsConnected, loading, clearThreats } = useDashboard()
+  const onClear = clearThreats
   const [searchQuery, setSearchQuery] = useState('')
   const [severityFilter, setSeverityFilter] = useState<string>('all')
   const [paused, setPaused] = useState(false)
@@ -160,13 +155,17 @@ export function ThreatPanel({ threats, wsConnected, onClear, loading }: ThreatPa
       {/* Results meta */}
       {isFiltered && (
         <div className="security-results-meta">
-          Found {filteredThreats.length} event{(filteredThreats.length ?? 0) !== 1 ? 's' : ''}
+          Found {filteredThreats.length} event{filteredThreats.length !== 1 ? 's' : ''}
           {searchQuery && <span> · <strong>"{searchQuery}"</strong></span>}
           {severityFilter !== 'all' && <span> · {severityFilter} only</span>}
         </div>
       )}
 
-      {displayThreats.length === 0 && !paused ? (
+      {loading && displayThreats.length === 0 ? (
+        <div className="threat-list" aria-label="Loading threats" data-tick={tick}>
+          <Skeleton variant="threat" count={5} />
+        </div>
+      ) : displayThreats.length === 0 && !paused ? (
         <EmptyState
           icon={<Icon name="alert-triangle" size={48} />}
           message="No threats detected"
@@ -183,10 +182,7 @@ export function ThreatPanel({ threats, wsConnected, onClear, loading }: ThreatPa
           icon={<Icon name="search" size={48} />}
           message="No matching threats"
           submessage="Try adjusting your search or filter criteria."
-        />          ) : loading || (!wsConnected && threats.length === 0) ? (
-        <div className="threat-list" aria-label="Loading threats" data-tick={tick}>
-          <Skeleton variant="threat" count={5} />
-        </div>
+        />
       ) : (
         <div className="threat-list">
           {filteredThreats.map((threat) => (

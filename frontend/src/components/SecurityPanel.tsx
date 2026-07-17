@@ -1,23 +1,14 @@
 import { useState, useMemo } from 'react'
-import type { RbacBinding, PrivilegedPod } from '../types'
+import { useDashboard, useTabSubscription } from '../context/DashboardContext'
 import { DataSourceBadge } from './DataSourceBadge'
 import { EmptyState } from './EmptyState'
 import { Icon } from './Icon'
 import { getNsColor } from '../utils'
 
-interface SecurityPanelProps {
-  rbacBindings: RbacBinding[]
-  privilegedPods: PrivilegedPod[]
-  rbacBindingsStatus?: string
-  privilegedPodsStatus?: string
-}
+export function SecurityPanel() {
+  useTabSubscription('security', { refetchOnFocus: true })
 
-export function SecurityPanel({
-  rbacBindings,
-  privilegedPods,
-  rbacBindingsStatus,
-  privilegedPodsStatus,
-}: SecurityPanelProps) {
+  const { rbacBindings, privilegedPods, rbacBindingsStatus, privilegedPodsStatus } = useDashboard()
   const [rbacSearch, setRbacSearch] = useState('')
   const [rbacTypeFilter, setRbacTypeFilter] = useState<'all' | 'ClusterRoleBinding' | 'RoleBinding'>('all')
   const [privSearch, setPrivSearch] = useState('')

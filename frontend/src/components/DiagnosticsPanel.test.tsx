@@ -4,6 +4,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { DiagnosticsPanel } from './DiagnosticsPanel'
 import type { Pod } from '../types'
 
+vi.mock('../context/DashboardContext', () => ({
+  useDashboard: () => ({
+    pods: MOCK_PODS,
+    cniTopology: { nodes: [], edges: [] },
+  }),
+  useTabSubscription: vi.fn(),
+}))
+
 const MOCK_PODS: Pod[] = [
   { name: 'web-1', namespace: 'default', pod_ip: '10.0.0.1', node_name: 'n1', phase: 'Running', labels: {}, containers: [] },
   { name: 'api-1', namespace: 'production', pod_ip: '10.0.0.2', node_name: 'n2', phase: 'Running', labels: {}, containers: [] },
@@ -16,7 +24,7 @@ describe('DiagnosticsPanel', () => {
   })
 
   it('renders the form with source/target sections', () => {
-    render(<DiagnosticsPanel pods={MOCK_PODS} cniTopology={{ nodes: [], edges: [] }} />)
+    render(<DiagnosticsPanel />)
     expect(screen.getByText('Connectivity Diagnostics')).toBeInTheDocument()
     expect(screen.getByText('Source')).toBeInTheDocument()
     expect(screen.getByText('Target')).toBeInTheDocument()
@@ -24,14 +32,14 @@ describe('DiagnosticsPanel', () => {
 
   it('shows validation error when source pod is not selected', async () => {
     const user = userEvent.setup()
-    render(<DiagnosticsPanel pods={MOCK_PODS} cniTopology={{ nodes: [], edges: [] }} />)
+    render(<DiagnosticsPanel />)
     await user.click(screen.getByText('Run Test'))
     expect(screen.getByText(/Please select a source pod/i)).toBeInTheDocument()
   })
 
   it('shows validation error when target pod is not selected', async () => {
     const user = userEvent.setup()
-    render(<DiagnosticsPanel pods={MOCK_PODS} cniTopology={{ nodes: [], edges: [] }} />)
+    render(<DiagnosticsPanel />)
     // Select source namespace & pod
     const nsSelect = screen.getAllByRole('combobox')[0] // source namespace
     await user.selectOptions(nsSelect, 'production')
@@ -44,7 +52,7 @@ describe('DiagnosticsPanel', () => {
 
   it('shows validation error when target service name is empty', async () => {
     const user = userEvent.setup()
-    render(<DiagnosticsPanel pods={MOCK_PODS} cniTopology={{ nodes: [], edges: [] }} />)
+    render(<DiagnosticsPanel />)
     // Select source
     const nsSelect = screen.getAllByRole('combobox')[0]
     await user.selectOptions(nsSelect, 'production')
@@ -58,7 +66,7 @@ describe('DiagnosticsPanel', () => {
 
   it('shows validation error for invalid port', async () => {
     const user = userEvent.setup()
-    render(<DiagnosticsPanel pods={MOCK_PODS} cniTopology={{ nodes: [], edges: [] }} />)
+    render(<DiagnosticsPanel />)
     // Select source
     const nsSelect = screen.getAllByRole('combobox')[0]
     await user.selectOptions(nsSelect, 'production')
@@ -78,7 +86,7 @@ describe('DiagnosticsPanel', () => {
 
   it('clears logs when Clear button is clicked', async () => {
     const user = userEvent.setup()
-    render(<DiagnosticsPanel pods={MOCK_PODS} cniTopology={{ nodes: [], edges: [] }} />)
+    render(<DiagnosticsPanel />)
     // First show an error log
     await user.click(screen.getByText('Run Test'))
     expect(screen.getByText(/Please select a source pod/i)).toBeInTheDocument()
@@ -89,7 +97,7 @@ describe('DiagnosticsPanel', () => {
   })
 
   it('shows empty log state initially', () => {
-    render(<DiagnosticsPanel pods={MOCK_PODS} cniTopology={{ nodes: [], edges: [] }} />)
+    render(<DiagnosticsPanel />)
     expect(screen.getByText(/Run a connectivity test to see results/i)).toBeInTheDocument()
   })
 })

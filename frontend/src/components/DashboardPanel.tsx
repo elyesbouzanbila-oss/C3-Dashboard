@@ -1,27 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import type { CalicoNodeStatus, IPAMBlockSummary, CniPolicy, FelixMetrics, DataSourceStatus } from '../types'
+import { useDashboard, useTabSubscription } from '../context/DashboardContext'
+import type { CalicoNodeStatus } from '../types'
 import { DataSourceBadge } from './DataSourceBadge'
 import { Skeleton } from './Skeleton'
 import { Icon } from './Icon'
 
 interface DashboardPanelProps {
-  cniNodes: CalicoNodeStatus[]
-  bgpPeers: number
-  ipPools: number
-  ipamBlocks: IPAMBlockSummary[]
-  policies: CniPolicy[]
-  felixMetrics: FelixMetrics | null
-  cniTopologyEdges: number
-  cniTopologyNodes: number
-  cniNodesStatus?: DataSourceStatus
-  ipamStatus?: DataSourceStatus
-  policiesStatus?: DataSourceStatus
-  felixStatus?: DataSourceStatus
-  loading?: boolean
   onNavigate?: (tabId: string) => void
-  threatsCount?: number
-  threatsCritical?: number
-  wsConnected?: boolean
 }
 
 // ── Animated counter hook ──────────────────────────────────────
@@ -284,17 +269,25 @@ function ExpandableCard({
   )
 }
 
-export function DashboardPanel({
-  cniNodes, bgpPeers, ipPools, ipamBlocks, policies, felixMetrics,
-  cniTopologyEdges, cniTopologyNodes,
-  cniNodesStatus, ipamStatus, policiesStatus, felixStatus, loading,
-  onNavigate, threatsCount = 0, threatsCritical = 0, wsConnected,
-}: DashboardPanelProps) {
+export function DashboardPanel({ onNavigate }: DashboardPanelProps) {
+  useTabSubscription('dashboard')
+
+  const {
+    cniNodes, bgpPeers, ipPools, ipamBlocks, cniPolicies: policies,
+    felixMetrics, cniTopology, loading, cniNodesStatus, ipamStatus,
+    policiesStatus, felixStatus, threats, wsConnected,
+  } = useDashboard()
+  const cniTopologyEdges = cniTopology?.edges.length || 0
+  const cniTopologyNodes = cniTopology?.nodes.length || 0
+  const threatsCount = threats.length
+  const threatsCritical = threats.filter(t => t.priority === 'Critical').length
+  const bgpPeersCount = bgpPeers.length
+  const ipPoolsCount = ipPools.length
   // Show content as soon as ANY data arrives, rather than waiting for
   // ALL endpoints to respond. This prevents the dashboard from getting
   // stuck on skeleton placeholders when one endpoint fails silently.
-  const hasAnyData = cniNodes.length > 0 || ipPools > 0 ||
-    ipamBlocks.length > 0 || policies.length > 0 || bgpPeers > 0
+  const hasAnyData = cniNodes.length > 0 || ipPoolsCount > 0 ||
+    ipamBlocks.length > 0 || policies.length > 0 || bgpPeersCount > 0
   const isLoading = loading && !hasAnyData
 
   const isReady = (n: CalicoNodeStatus) => n.calico_ready ?? n.felix_ready ?? false
@@ -308,8 +301,8 @@ export function DashboardPanel({
   // ── Animated counters ──────────────────────────────────────
   const animate = !loading && cniNodes.length > 0
   const animHealthyNodes = useCountUp(healthyNodes.length, 700, animate)
-  const animBgpPeers = useCountUp(bgpPeers, 700, animate)
-  const animIpPools = useCountUp(ipPools, 700, animate)
+  const animBgpPeers = useCountUp(bgpPeersCount, 700, animate)
+  const animIpPools = useCountUp(ipPoolsCount, 700, animate)
   const animIpamPct = useCountUp(Math.round(ipamPct), 800, animate)
   const animPolicies = useCountUp(policies.length, 700, animate)
   const animTopoEdges = useCountUp(cniTopologyEdges, 700, animate)

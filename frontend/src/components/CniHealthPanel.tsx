@@ -1,15 +1,12 @@
-import type { CalicoNodeStatus, DataSourceStatus } from '../types'
+import { useDashboard, useTabSubscription } from '../context/DashboardContext'
+import type { CalicoNodeStatus } from '../types'
 import { DataSourceBadge } from './DataSourceBadge'
 import { EmptyState } from './EmptyState'
 import { Icon } from './Icon'
 
-interface CniHealthPanelProps {
-  nodes: CalicoNodeStatus[]
-  status?: DataSourceStatus
-}
-
 function formatUptime(seconds: number | null | undefined): string {
-  if (!seconds || seconds <= 0) return '-'
+  if (seconds == null || seconds < 0) return '-'
+  if (seconds === 0) return '0m'
   const d = Math.floor(seconds / 86400)
   const h = Math.floor((seconds % 86400) / 3600)
   if (d > 0) return `${d}d ${h}h`
@@ -58,7 +55,10 @@ function DonutChart({
   )
 }
 
-export function CniHealthPanel({ nodes, status }: CniHealthPanelProps) {
+export function CniHealthPanel() {
+  useTabSubscription('cni-health')
+
+  const { cniNodes: nodes, cniNodesStatus: status } = useDashboard()
   const isReady = (n: CalicoNodeStatus) => n.calico_ready ?? n.felix_ready ?? false
   const healthy = nodes.filter(isReady)
   const down = nodes.filter(n => !isReady(n))

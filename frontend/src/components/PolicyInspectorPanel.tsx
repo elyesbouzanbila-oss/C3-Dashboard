@@ -1,13 +1,8 @@
 import { useState, useMemo } from 'react'
-import type { CniPolicy, DataSourceStatus } from '../types'
+import { useDashboard } from '../context/DashboardContext'
 import { DataSourceBadge } from './DataSourceBadge'
 import { EmptyState } from './EmptyState'
 import { Icon } from './Icon'
-
-interface PolicyInspectorPanelProps {
-  policies: CniPolicy[]
-  status?: DataSourceStatus
-}
 
 const ACTION_COLORS: Record<string, string> = {
   Allow: 'var(--success)',
@@ -52,7 +47,8 @@ function ActionBadge({ actions }: { actions: string[] | null | undefined }) {
   )
 }
 
-export function PolicyInspectorPanel({ policies, status }: PolicyInspectorPanelProps) {
+export function PolicyInspectorPanel() {
+  const { cniPolicies: policies, policiesStatus: status } = useDashboard()
   const [searchQuery, setSearchQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState<'all' | 'NetworkPolicy' | 'GlobalNetworkPolicy'>('all')
 

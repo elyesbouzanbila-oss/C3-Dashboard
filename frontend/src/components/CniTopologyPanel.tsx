@@ -1,16 +1,11 @@
 import { useState, useMemo } from 'react'
-import type { CniTopologyNode, CniTopologyEdge, Pod, DataSourceStatus, TopologyNode, TopologyEdge as TopologyEdgeType } from '../types'
+import type { Pod, TopologyNode, TopologyEdge as TopologyEdgeType } from '../types'
+import { useDashboard, useTabSubscription } from '../context/DashboardContext'
 import { DataSourceBadge } from './DataSourceBadge'
 import { Topology } from '../Topology'
 import { EmptyState } from './EmptyState'
 import { Icon } from './Icon'
 import { getNsColor } from '../utils'
-
-interface CniTopologyPanelProps {
-  pods: Pod[]
-  cniTopology: { nodes: CniTopologyNode[]; edges: CniTopologyEdge[] } | null
-  topologyStatus?: DataSourceStatus
-}
 
 const COMMON_PORT_CHIPS = [
   { port: 53, tooltip: 'DNS' },
@@ -23,7 +18,10 @@ const COMMON_PORT_CHIPS = [
   { port: 9090, tooltip: 'Prometheus' },
 ] as const
 
-export function CniTopologyPanel({ pods, cniTopology, topologyStatus }: CniTopologyPanelProps) {
+export function CniTopologyPanel() {
+  useTabSubscription('topology', { intervalMs: 60_000, refetchOnFocus: true })
+
+  const { pods, cniTopology, topologyStatus } = useDashboard()
   const [inventoryFilter, setInventoryFilter] = useState('')
   const [filterFocused, setFilterFocused] = useState(false)
   const [showPods, setShowPods] = useState(true)

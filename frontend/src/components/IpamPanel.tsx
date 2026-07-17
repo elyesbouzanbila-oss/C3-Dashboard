@@ -1,15 +1,8 @@
 import { useMemo } from 'react'
-import type { IPPool, IPAMBlockSummary, DataSourceStatus } from '../types'
+import { useDashboard } from '../context/DashboardContext'
 import { DataSourceBadge } from './DataSourceBadge'
 import { EmptyState } from './EmptyState'
 import { Icon } from './Icon'
-
-interface IpamPanelProps {
-  pools: IPPool[]
-  blocks: IPAMBlockSummary[]
-  poolsStatus?: DataSourceStatus
-  ipamStatus?: DataSourceStatus
-}
 
 function getUtilColor(pct: number): string {
   if (pct >= 90) return 'var(--danger)'
@@ -37,7 +30,10 @@ function parseCidr(cidr: string): { prefix: number; bits: number } | null {
   if (parts.length !== 2) return null
   const bits = parseInt(parts[1], 10)
   if (isNaN(bits) || bits < 0 || bits > 128) return null
-  return { prefix: bits, bits: 32 - bits }
+  // Detect IPv6 by presence of ':' in the address portion
+  const isIpv6 = parts[0].includes(':')
+  const totalBits = isIpv6 ? 128 : 32
+  return { prefix: bits, bits: totalBits - bits }
 }
 
 /** Simple donut chart SVG (reused from DashboardPanel pattern). */
@@ -99,7 +95,8 @@ function UtilizationBar({ pct }: { pct: number }) {
   )
 }
 
-export function IpamPanel({ pools, blocks, poolsStatus, ipamStatus }: IpamPanelProps) {
+export function IpamPanel() {
+  const { ipPools: pools, ipamBlocks: blocks, ipPoolsStatus: poolsStatus, ipamStatus } = useDashboard()
   const totalPools = pools.length
   const totalAllocated = useMemo(() => blocks.reduce((acc, b) => acc + b.allocated, 0), [blocks])
   const totalCapacity = useMemo(() => blocks.reduce((acc, b) => acc + b.total, 0), [blocks])
@@ -122,7 +119,7 @@ export function IpamPanel({ pools, blocks, poolsStatus, ipamStatus }: IpamPanelP
             color: getUtilColor(overallPct),
             donut: true,
           },
-        ].map((stat, i) => (
+        ].map((stat) => (
           <div key={stat.label} className="pod-metrics-cluster-stat stagger-item" style={{ position: 'relative', overflow: 'hidden' }}>
             {stat.donut ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
