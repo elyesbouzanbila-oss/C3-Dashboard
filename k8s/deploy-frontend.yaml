@@ -17,6 +17,10 @@ spec:
       # No nodeSelector — the frontend (static files + nginx proxy) can run
       # on any node. Only the backend needs to be on the control-plane node
       # for in-cluster API access (and that's handled by its own deployment).
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: dashboard-tls
       containers:
         - name: frontend
           image: dashboard-frontend:latest
@@ -26,8 +30,14 @@ spec:
           ports:
             - containerPort: 5173
               protocol: TCP
-          # API key removed from frontend — authentication is handled
-          # by the nginx reverse proxy or an external authenticating proxy.
+              name: http
+            - containerPort: 443
+              protocol: TCP
+              name: https
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /etc/nginx/ssl
+              readOnly: true
           resources:
             requests:
               memory: "64Mi"
