@@ -152,6 +152,7 @@ async def falco_webhook(
                 output_fields=raw.get("output_fields", raw.get("fields", {}) or {}),
             )
             await service.publish_falco_event(event)
+            await service.store_falco_event(event)
             count += 1
         except Exception as exc:
             logger.warning(f"Event {idx}: skipped — {exc}")
@@ -159,6 +160,30 @@ async def falco_webhook(
     if filtered:
         logger.info(f"Filtered {filtered} noisy event(s) (rules: {', '.join(_NOISY_RULES)})")
     return {"status": "ok", "events_processed": count, "events_filtered": filtered}
+
+
+history_limiter = Limiter(key_func=get_remote_address)
+
+
+@router.get("/history")
+@history_limiter.limit("30/minute")
+async def get_threat_history(
+    request: Request,
+    settings: Settings = Depends(get_settings_dep),
+) -> dict:
+    """Return recent threat events from the vault.
+
+    The frontend calls this on mount so the Threats tab is populated
+    with historical events immediately, even before the WebSocket has
+    delivered any real-time events.
+
+    Returns up to 50 of the most recently detected threats, newest
+    first — matching the same JSON format as the real-time pub/sub
+    channel so the frontend can parse them identically.
+    """
+    service = ThreatService(settings)
+    events = await service.get_recent_events(limit=50)
+    return {"status": "success", "events": events}
 
 
 @router.websocket("/ws/threats")

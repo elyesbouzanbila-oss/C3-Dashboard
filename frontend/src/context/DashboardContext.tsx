@@ -303,6 +303,26 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // ── Threat vault history fetcher ───────────────────────────────
+  const fetchThreatHistory = useCallback(async () => {
+    const res = await fetchWithRetry(`${API_BASE_URL}/api/threats/history`)
+    if (res?.ok) {
+      const d = await res.json()
+      const newEvents = d.events || []
+      if (newEvents.length === 0) return
+
+      setThreats(prev => {
+        // If the WebSocket has already delivered live events, don't
+        // overwrite them — history is only meant to seed an empty tab.
+        if (prev.length > 0) return prev
+        return newEvents.map((evt: any, i: number) => ({
+          ...evt,
+          id: `history-${i}`,
+        }))
+      })
+    }
+  }, [])
+
   // Map tab IDs to their supplementary fetch function
   const tabDataFetchers = useMemo<Record<string, () => Promise<void>>>(() => ({
     'topology': fetchTopology,
@@ -310,7 +330,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     'cni-health': fetchFelix,
     'policies': fetchCoverage,
     'security': fetchSecurity,
-  }), [fetchTopology, fetchFelix, fetchCoverage, fetchSecurity])
+    'threats': fetchThreatHistory,
+  }), [fetchTopology, fetchFelix, fetchCoverage, fetchSecurity, fetchThreatHistory])
 
   // ── Silent refresh (background — no loading overlay) ────────
   const silentRefresh = useCallback(async () => {
