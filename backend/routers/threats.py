@@ -103,6 +103,7 @@ async def falco_webhook(
     decoded_events = _parse_json_objects(text)
 
     logger.info(f"Falco body: {len(body)} bytes, {len(decoded_events)} decoded objects")
+    logger.info(f"Falco raw body (first 300 chars): {text[:300]!r}")
 
     if not decoded_events:
         logger.error(f"No valid JSON objects found in Falco body: {text[:500]}")
@@ -114,9 +115,12 @@ async def falco_webhook(
     # Log the first decoded event to see the format
     if decoded_events:
         first = decoded_events[0]
-        logger.info(f"First decoded event keys: {list(first.keys()) if isinstance(first, dict) else type(first).__name__}")
-        logger.info(f"First event sample: output={str(first.get('output', ''))[:80]!r}, "
-                     f"priority={first.get('priority', '')!r}, rule={str(first.get('rule', ''))[:60]!r}")
+        if isinstance(first, dict):
+            logger.info(f"First event keys: {list(first.keys())}")
+            logger.info(f"First event: output={str(first.get('output', ''))[:80]!r}, "
+                         f"priority={first.get('priority', '')!r}, rule={str(first.get('rule', ''))[:60]!r}")
+        else:
+            logger.info(f"First item is NOT a dict, type={type(first).__name__}, value={str(first)[:100]!r}")
 
     service = ThreatService(settings)
     count = 0
