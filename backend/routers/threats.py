@@ -112,8 +112,8 @@ async def falco_webhook(
     service = ThreatService(settings)
     count = 0
     for raw in decoded_events:
-        # Skip empty/keepalive objects
-        if not raw:
+        # Skip non-dict values (numbers, strings, etc.) and empty objects
+        if not isinstance(raw, dict) or not raw:
             continue
         try:
             event = FalcoEvent(
