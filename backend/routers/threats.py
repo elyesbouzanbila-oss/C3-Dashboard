@@ -102,6 +102,8 @@ async def falco_webhook(
     # Falco may batch events or send NDJSON (newline-delimited JSON)
     decoded_events = _parse_json_objects(text)
 
+    logger.info(f"Falco body: {len(body)} bytes, {len(decoded_events)} decoded objects")
+
     if not decoded_events:
         logger.error(f"No valid JSON objects found in Falco body: {text[:500]}")
         raise HTTPException(
@@ -109,11 +111,22 @@ async def falco_webhook(
             detail="No valid JSON objects in request body",
         )
 
+    # Log the first decoded event to see the format
+    if decoded_events:
+        first = decoded_events[0]
+        logger.info(f"First decoded event keys: {list(first.keys()) if isinstance(first, dict) else type(first).__name__}")
+        logger.info(f"First event sample: output={str(first.get('output', ''))[:80]!r}, "
+                     f"priority={first.get('priority', '')!r}, rule={str(first.get('rule', ''))[:60]!r}")
+
     service = ThreatService(settings)
     count = 0
-    for raw in decoded_events:
+    for idx, raw in enumerate(decoded_events):
         # Skip non-dict values (numbers, strings, etc.) and empty objects
-        if not isinstance(raw, dict) or not raw:
+        if not isinstance(raw, dict):
+            logger.debug(f"Event {idx}: skipped non-dict type={type(raw).__name__}")
+            continue
+        if not raw:
+            logger.debug(f"Event {idx}: skipped empty dict")
             continue
         try:
             event = FalcoEvent(
@@ -124,11 +137,12 @@ async def falco_webhook(
                 output_fields=raw.get("output_fields", raw.get("fields", {}) or {}),
             )
             await service.publish_falco_event(event)
-            logger.info("Falco event received", extra={"rule": event.rule, "priority": event.priority})
+            logger.info(f"Event {idx}: published OK — rule={event.rule!r} priority={event.priority!r}")
             count += 1
         except Exception as exc:
-            logger.warning(f"Skipped unparseable Falco event: {exc}")
+            logger.warning(f"Event {idx}: FAILED — {type(exc).__name__}: {exc}")
 
+    logger.info(f"Falco webhook done: {count}/{len(decoded_events)} events processed")
     return {"status": "ok", "events_processed": count}
 
 
