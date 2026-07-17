@@ -327,6 +327,25 @@ export function DashboardPanel({ onNavigate }: DashboardPanelProps) {
     onNavigate?.(tabId)
   }, [onNavigate])
 
+  // ── Data flash on update ─────────────────────────────────────
+  const dashboardRef = useRef<HTMLDivElement>(null)
+  const prevDataSigRef = useRef('')
+
+  // Combines key data points into a signature that changes when data refreshes
+  const dataSig = `${cniNodes.length}|${healthyNodes.length}|${bgpPeersCount}|${ipPoolsCount}|${policies.length}|${cniTopologyEdges}|${ipamBlocks.length}`
+
+  useEffect(() => {
+    if (prevDataSigRef.current && dataSig !== prevDataSigRef.current) {
+      const el = dashboardRef.current
+      if (el) {
+        el.classList.add('data-flash')
+        const timer = setTimeout(() => el.classList.remove('data-flash'), 700)
+        return () => clearTimeout(timer)
+      }
+    }
+    prevDataSigRef.current = dataSig
+  }, [dataSig])
+
   // IPAM utilization color
   const ipamColor =
     ipamPct >= 90 ? 'var(--danger)' :
@@ -404,7 +423,7 @@ export function DashboardPanel({ onNavigate }: DashboardPanelProps) {
       </div>
 
       {/* ── Dashboard Grid ──────────────────────────────────── */}
-      <div className="dashboard-grid">
+      <div className="dashboard-grid" ref={dashboardRef}>
         {isLoading ? (
           <>
             {[1, 2, 3, 4].map(i => (

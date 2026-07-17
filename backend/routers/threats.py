@@ -29,9 +29,12 @@ def _parse_json_objects(text: str) -> list[dict]:
     events in a single HTTP POST."""
     results: list[dict] = []
 
-    # 1. Try standard single-object parse first (fast path)
+    # 1. Try standard parse first (fast path for single object or array)
     try:
-        results.append(json.loads(text))
+        parsed = json.loads(text)
+        if isinstance(parsed, list):
+            return parsed  # JSON array of events
+        results.append(parsed)
         return results
     except json.JSONDecodeError as exc:
         # If it's only "Extra data", parse iteratively

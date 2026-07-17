@@ -11,8 +11,8 @@ const SEVERITIES = ['Critical', 'High', 'Medium', 'Warning'] as const
 function getRelativeTime(timestamp: string): string {
   const now = Date.now()
   const time = new Date(timestamp).getTime()
+  if (isNaN(time)) return 'just now'
   const diff = Math.floor((now - time) / 1000)
-  if (diff < 0) return 'just now'
   if (diff < 5) return 'just now'
   if (diff < 60) return `${diff}s ago`
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
