@@ -78,7 +78,7 @@ async def falco_webhook(
     Accepts both Falco's native JSON payload and the standard Falcosidekick
     webhook format.  Authenticated via HMAC-SHA256 signature.
 
-    Rate-limited to 10 requests per minute per IP.
+    Rate-limited to 600 requests per minute per IP.
     """
     body = await request.body()
     text = body.decode(errors="replace")
@@ -113,7 +113,7 @@ async def falco_webhook(
     count = 0
     for raw in decoded_events:
         # Skip empty/keepalive objects
-        if not raw or raw == {}:
+        if not raw:
             continue
         try:
             event = FalcoEvent(
