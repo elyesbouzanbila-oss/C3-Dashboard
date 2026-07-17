@@ -44,6 +44,21 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Kubernetes API connection failed: {e} — endpoints will use mock data")
 
+    # ── Falco webhook secret check ────────────────────────────
+    settings_ = get_settings()
+    if not settings_.FALCO_WEBHOOK_SECRET:
+        logger.warning(
+            "FALCO_WEBHOOK_SECRET is not set — the Falco webhook endpoint "
+            "(/api/threats/falco) will accept events WITHOUT signature verification. "
+            "Set FALCO_WEBHOOK_SECRET in production to prevent forged threat events."
+        )
+    else:
+        logger.info("Falco webhook HMAC secret is configured")
+
+    # ── Diagnostics namespace whitelist ───────────────────────
+    from routers.cni import _DIAG_NS_WHITELIST
+    logger.info(f"Diagnostics namespace whitelist: {', '.join(sorted(_DIAG_NS_WHITELIST))}")
+
     yield
     # ── Shutdown (nothing to clean up yet) ──────────────────────
 

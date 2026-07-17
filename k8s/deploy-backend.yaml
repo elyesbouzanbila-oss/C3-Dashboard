@@ -32,17 +32,20 @@ spec:
           env:
             - name: K8S_MODE
               value: "incluster"
-            - name: API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: dashboard-api-key
-                  key: api-key
             # FRONTEND_URL is used by the CORS middleware. Since all browser
             # requests go through the same-origin nginx proxy on the frontend pod,
             # CORS is not enforced for normal operation. Set this to the external
             # URL if you need direct backend access from a different origin.
             - name: FRONTEND_URL
               value: "http://dashboard-frontend:5173"
+            # API_KEY is no longer sent from the frontend. To protect the
+            # diagnostics POST endpoint, set this via a Kubernetes Secret.
+            # The backend checks X-API-Key header against this value.
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dashboard-api-key
+                  key: api-key
             - name: REDIS_URL
               value: "redis://dashboard-redis:6379/0"
             - name: REDIS_PASSWORD

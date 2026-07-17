@@ -1,11 +1,14 @@
 """CNI (Calico) diagnostic endpoints."""
 
 import asyncio
+import os
 import re
 import uuid
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Header
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from config import Settings
 from dependencies import get_k8s_client, get_settings_dep
@@ -23,6 +26,21 @@ from services.logging_service import get_logger
 
 logger = get_logger(__name__)
 
+# ── Security configuration ──────────────────────────────────────
+# Namespace whitelist for the diagnostics endpoint (ephemeral pod creation).
+# Only namespaces in this list are allowed as source/target for connectivity tests.
+# Set via env var DIAG_NAMESPACE_WHITELIST (comma-separated, defaults to "default,k8s-dashboard").
+_DIAG_NS_WHITELIST = frozenset(
+    ns.strip()
+    for ns in os.getenv("DIAG_NAMESPACE_WHITELIST", "default,k8s-dashboard").split(",")
+    if ns.strip()
+)
+
+# Rate limiter for the diagnostics POST endpoint: 10 requests/minute per IP
+# to prevent creating a flood of ephemeral pods.
+diag_limiter = Limiter(key_func=get_remote_address)
+
+
 # RFC 1123 subdomain: lowercase alphanumeric, hyphens, max 253 chars, start/end with alphanumeric
 _NAME_RE = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
 
@@ -32,6 +50,33 @@ def _validate_k8s_name(value: str, field: str) -> str:
     if not value or len(value) > 253 or not _NAME_RE.match(value):
         raise HTTPException(status_code=400, detail=f"Invalid {field}: {value!r}")
     return value
+
+
+def _check_api_key(x_api_key: str = Header("", alias="X-API-Key")) -> None:
+    """FastAPI dependency: check API key for write operations.
+
+    Only protects state-changing endpoints (POST diagnostics).
+    GET endpoints remain open — they are read-only.
+    """
+    from config import get_settings
+    settings = get_settings()
+    if settings.API_KEY and x_api_key != settings.API_KEY:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing API key. Set X-API-Key header.",
+        )
+
+
+def _validate_diag_namespace(ns: str, field: str) -> str:
+    """Validate that a namespace is in the diagnostics whitelist."""
+    _validate_k8s_name(ns, field)
+    if ns not in _DIAG_NS_WHITELIST:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Namespace {ns!r} is not in the diagnostics whitelist "
+                   f"(allowed: {', '.join(sorted(_DIAG_NS_WHITELIST))})",
+        )
+    return ns
 
 
 router = APIRouter(prefix="/api/cni", tags=["CNI / Calico"])
@@ -179,6 +224,7 @@ async def felix_metrics(
 
 
 @router.post("/diagnostics/connectivity")
+@diag_limiter.limit("10/minute")
 async def connectivity_diagnostics(
     source_pod: str = Query(..., description="Source pod name"),
     source_namespace: str = Query("default", description="Source pod namespace"),
@@ -188,22 +234,34 @@ async def connectivity_diagnostics(
     target_port: int = Query(80, description="Target port to test"),
     timeout_seconds: int = Query(30, description="Max time to wait for diagnostic pod (5-60)"),
     api_client=Depends(get_k8s_client),
+    _auth=Depends(_check_api_key),
 ) -> Dict[str, Any]:
     """On-demand connectivity test between pods / services.
 
     Creates an ephemeral diagnostic pod in the source namespace that
     uses `nc` (netcat) to test TCP connectivity to the target.
     The pod is automatically deleted after the test completes.
+
+    **Security:**
+    - Requires a valid X-API-Key header (if API_KEY is configured)
+    - Rate-limited to 10 requests/minute per IP
+    - source_namespace and target_namespace must be in the whitelist
+      (configurable via DIAG_NAMESPACE_WHITELIST env var)
     """
     try:
         from kubernetes_asyncio import client as k8s_client
         v1 = k8s_client.CoreV1Api(api_client)
 
+        # ── Validate namespaces against whitelist ─────────────
+        _validate_diag_namespace(source_namespace, "source_namespace")
+        _validate_diag_namespace(target_namespace, "target_namespace")
+
+        # Validate resource names (K8s RFC 1123 compliance)
+        _validate_k8s_name(source_pod, "source_pod")
+
         # ── Resolve target host ──────────────────────────────
         target_host: Optional[str] = None
         target_display: str = ""
-
-        _validate_k8s_name(target_namespace, "target_namespace")
 
         if target_pod:
             _validate_k8s_name(target_pod, "target_pod")
