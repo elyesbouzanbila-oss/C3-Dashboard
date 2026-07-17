@@ -16,6 +16,48 @@ from services.logging_service import get_logger
 
 logger = get_logger(__name__)
 
+
+def _parse_json_objects(text: str) -> list[dict]:
+    """Parse one or more JSON objects from *text*, handling NDJSON and
+    concatenated JSON (e.g. ``{...}{...}``). Falco may batch multiple
+    events in a single HTTP POST."""
+    results: list[dict] = []
+
+    # 1. Try standard single-object parse first (fast path)
+    try:
+        results.append(json.loads(text))
+        return results
+    except json.JSONDecodeError as exc:
+        # If it's only "Extra data", parse iteratively
+        if "Extra data" not in str(exc):
+            # Try NDJSON: split by newlines and parse each line
+            for line in text.strip().splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    results.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+            return results
+
+    # 2. Iterative decode for concatenated JSON like `{...}{...}`
+    decoder = json.JSONDecoder()
+    idx = 0
+    while idx < len(text):
+        try:
+            obj, end = decoder.raw_decode(text, idx)
+            results.append(obj)
+            idx = end
+            # skip whitespace between objects
+            while idx < len(text) and text[idx] in " \t\n\r":
+                idx += 1
+        except json.JSONDecodeError:
+            break
+
+    return results
+
+
 router = APIRouter()
 
 # Rate limit: max 600 POSTs per minute per IP on the Falco webhook
@@ -39,7 +81,7 @@ async def falco_webhook(
     Rate-limited to 10 requests per minute per IP.
     """
     body = await request.body()
-    raw = json.loads(body)
+    text = body.decode(errors="replace")
 
     # Signature check — read the raw bytes before parsing
     if settings.FALCO_WEBHOOK_SECRET:
@@ -56,23 +98,38 @@ async def falco_webhook(
                 detail="Invalid Falco signature",
             )
 
-    # Build FalcoEvent from whatever fields Falco sends
-    try:
-        event = FalcoEvent(
-            output=raw.get("output", "") or "",
-            priority=raw.get("priority", "") or "",
-            rule=raw.get("rule", "") or "",
-            time=raw.get("time", "") or "",
-            output_fields=raw.get("output_fields", raw.get("fields", {}) or {}),
-        )
-    except Exception as exc:
-        logger.error(f"Failed to parse Falco event: {exc} — raw body: {body.decode(errors='replace')[:500]}")
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    # Parse one or more JSON objects from the body
+    # Falco may batch events or send NDJSON (newline-delimited JSON)
+    decoded_events = _parse_json_objects(text)
 
-    logger.info("Falco event received", extra={"rule": event.rule, "priority": event.priority})
+    if not decoded_events:
+        logger.error(f"No valid JSON objects found in Falco body: {text[:500]}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No valid JSON objects in request body",
+        )
+
     service = ThreatService(settings)
-    await service.publish_falco_event(event)
-    return {"status": "ok"}
+    count = 0
+    for raw in decoded_events:
+        # Skip empty/keepalive objects
+        if not raw or raw == {}:
+            continue
+        try:
+            event = FalcoEvent(
+                output=raw.get("output", "") or "",
+                priority=raw.get("priority", "") or "",
+                rule=raw.get("rule", "") or "",
+                time=raw.get("time", "") or "",
+                output_fields=raw.get("output_fields", raw.get("fields", {}) or {}),
+            )
+            await service.publish_falco_event(event)
+            logger.info("Falco event received", extra={"rule": event.rule, "priority": event.priority})
+            count += 1
+        except Exception as exc:
+            logger.warning(f"Skipped unparseable Falco event: {exc}")
+
+    return {"status": "ok", "events_processed": count}
 
 
 @router.websocket("/ws/threats")
