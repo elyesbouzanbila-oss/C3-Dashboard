@@ -18,12 +18,15 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
-# Rate limit: max 10 POSTs per minute per IP on the Falco webhook
+# Rate limit: max 600 POSTs per minute per IP on the Falco webhook
+# Falco fires many events (K8s API connections per node, container spawns, etc.)
+# so the limit needs to be generous to avoid dropping legitimate threat alerts.
+# The NetworkPolicy and HMAC signature provide the real security.
 falco_limiter = Limiter(key_func=get_remote_address)
 
 
 @router.post("/falco")
-@falco_limiter.limit("10/minute")
+@falco_limiter.limit("600/minute")
 async def falco_webhook(
     request: Request,
     settings: Settings = Depends(get_settings_dep),

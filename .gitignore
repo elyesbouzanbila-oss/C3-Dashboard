@@ -18,6 +18,7 @@ build/
 Thumbs.db
 backend/SECURITY_FIXES.md
 rapport/
+.freebuff/
 
 # Secret YAML files — generate real secrets on the cluster via kubectl create secret
 # See Phase 3 in the deployment docs. These are placeholders only.
