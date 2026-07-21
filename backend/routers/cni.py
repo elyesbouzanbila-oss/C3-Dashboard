@@ -6,7 +6,7 @@ import re
 import uuid
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Header
+from fastapi import APIRouter, Depends, HTTPException, Query, Header, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -226,6 +226,7 @@ async def felix_metrics(
 @router.post("/diagnostics/connectivity")
 @diag_limiter.limit("10/minute")
 async def connectivity_diagnostics(
+    request: Request,
     source_pod: str = Query(..., description="Source pod name"),
     source_namespace: str = Query("default", description="Source pod namespace"),
     target_pod: Optional[str] = Query(None, description="Target pod name"),
