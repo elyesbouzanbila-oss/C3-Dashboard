@@ -1,0 +1,106 @@
+# ── cert-issuer.yaml ───────────────────────────────────────────────
+# cert-manager resources for automatic TLS certificate provisioning.
+#
+# Requires cert-manager to be installed in the cluster:
+#   kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.2/cert-manager.yaml
+#
+# The Certificate below creates the 'dashboard-tls' Secret which the
+# frontend nginx deployment mounts at /etc/nginx/ssl.
+#
+# Usage:
+#   Edit the Certificate's 'dnsNames' to match your hostname, then:
+#   kubectl apply -f k8s/cert-issuer.yaml
+# ──────────────────────────────────────────────────────────────────
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-issuer
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dashboard-tls
+  namespace: k8s-dashboard
+spec:
+  # ── Secret created by cert-manager ─────────────────────────
+  # The frontend deployment mounts this exact secret name.
+  secretName: dashboard-tls
+
+  # ── Certificate validity ───────────────────────────────────
+  # 1 year — renews automatically 30 days before expiry.
+  duration: 8760h    # 365 days
+  renewBefore: 720h  # 30 days
+
+  # ── Hostnames ──────────────────────────────────────────────
+  # ⚠ Change 'dashboard.local' to your actual hostname!
+  # For a NodePort setup, use the hostname you configured in
+  # deploy.sh (e.g., dashboard.internal.example.com).
+  # Multiple DNS names and IPs are supported.
+  dnsNames:
+    - dashboard.local
+    - localhost
+
+  # ── Issuer reference ───────────────────────────────────────
+  # Points to the self-signed ClusterIssuer above.
+  # For production with a public domain, replace with a
+  # Let's Encrypt ClusterIssuer instead (see commented section below).
+  issuerRef:
+    name: selfsigned-issuer
+    kind: ClusterIssuer
+
+  # ── Private key ────────────────────────────────────────────
+  # RSA 2048 — compatible with nginx and all modern clients.
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS1
+    size: 2048
+
+# ──────────────────────────────────────────────────────────────────
+# Let's Encrypt production issuer (alternative)
+# Uncomment this and comment out the self-signed issuer above if:
+#   - Your cluster has a public domain
+#   - You have an Ingress controller (cert-manager can also create
+#     Ingresses automatically, but for NodePort you'd handle ACME
+#     HTTP-01 challenges manually or via DNS-01).
+#
+# ── ClusterIssuer ─────────────────────────────────────────────────
+# ---
+# apiVersion: cert-manager.io/v1
+# kind: ClusterIssuer
+# metadata:
+#   name: letsencrypt-prod
+# spec:
+#   acme:
+#     # Production server — rate-limited: 50 certs/week/domain
+#     server: https://acme-v02.api.letsencrypt.org/directory
+#     email: admin@example.com  # ⚠ Change to your email
+#     privateKeySecretRef:
+#       name: letsencrypt-prod-account-key
+#     solvers:
+#       - http01:
+#           ingress:
+#             class: nginx
+#
+# ── Certificate (Let's Encrypt variant) ───────────────────────────
+# ---
+# apiVersion: cert-manager.io/v1
+# kind: Certificate
+# metadata:
+#   name: dashboard-tls
+#   namespace: k8s-dashboard
+# spec:
+#   secretName: dashboard-tls
+#   duration: 2160h   # 90 days (max for Let's Encrypt)
+#   renewBefore: 720h # 30 days
+#   dnsNames:
+#     - dashboard.example.com  # ⚠ Change to your domain
+#   issuerRef:
+#     name: letsencrypt-prod
+#     kind: ClusterIssuer
+#   privateKey:
+#     algorithm: RSA
+#     encoding: PKCS1
+#     size: 2048

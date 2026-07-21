@@ -19,3 +19,7 @@ resources:
   - secret-redis.yaml
   - networkpolicy-redis.yaml
   - networkpolicy-backend.yaml
+  # cert-issuer.yaml is NOT listed here intentionally:
+  # deploy.sh applies it *conditionally* (only when cert-manager
+  # is detected). Adding it globally would break standalone
+  # 'kubectl apply -k k8s/' runs on clusters without cert-manager.
