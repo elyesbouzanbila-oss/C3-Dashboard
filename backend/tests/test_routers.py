@@ -238,13 +238,16 @@ class TestCniPolicyCoverage:
 
 
 class TestCniConnectivityDiagnostics:
+    _AUTH_HEADERS = {"X-API-Key": "test-key-not-real"}
+
     def test_requires_target(self):
         """POST without target_pod or target_service returns 400."""
         resp = client.post(
             "/api/cni/diagnostics/connectivity",
             params={"source_pod": "my-pod"},
+            headers=self._AUTH_HEADERS,
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 400, f"Expected 400, got {resp.status_code}: {resp.text[:200]}"
 
     @patch("kubernetes_asyncio.client.CoreV1Api")
     def test_mock_fallback(self, mock_core_v1):
@@ -260,6 +263,7 @@ class TestCniConnectivityDiagnostics:
                     "target_namespace": "default",
                     "target_port": 80,
                 },
+                headers=self._AUTH_HEADERS,
             ),
             "mock",
         )
