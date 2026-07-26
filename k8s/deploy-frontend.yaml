@@ -34,6 +34,13 @@ spec:
             - containerPort: 443
               protocol: TCP
               name: https
+          env:
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dashboard-api-key
+                  key: api-key
+                  optional: true
           volumeMounts:
             - name: tls-certs
               mountPath: /etc/nginx/ssl

@@ -1,6 +1,7 @@
 import { useState, useRef, useMemo, useCallback } from 'react'
 import { useDashboard } from '../context/DashboardContext'
 import { Icon } from './Icon'
+import { config } from '../config'
 
 interface LogEntry {
   id: number
@@ -166,8 +167,17 @@ export function DiagnosticsPanel() {
 
       addLog('command', `POST /api/cni/diagnostics/connectivity?${params.toString()}`)
 
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+      const apiKey = config.apiKey
+      if (apiKey) {
+        headers['X-API-Key'] = apiKey
+      }
+
       const response = await fetch(`${API_BASE_URL}/api/cni/diagnostics/connectivity?${params.toString()}`, {
         method: 'POST',
+        headers,
       })
 
       if (response.ok) {
