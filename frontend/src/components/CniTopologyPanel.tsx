@@ -245,23 +245,43 @@ export function CniTopologyPanel() {
           <DataSourceBadge status={topologyStatus} label="Topology data" />
         </div>
 
-        {/* Extended stats bar */}
-        <div className="cni-topology-stats" style={{ display: 'flex', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
-          <div className="cni-topology-stat">
-            <span className="cni-topology-stat-value">{nodeCount}</span>
-            <span className="cni-topology-stat-label">Nodes</span>
+        {/* ── Compact Stats Bar (dashboard-compact-bar pattern) ── */}
+        <div className="dashboard-compact-bar stagger-item" style={{ animationDelay: '0s' }}>
+          <div className="dashboard-mini-stat">
+            <span className="dashboard-mini-stat-icon" style={{ color: '#3B82F6' }}>
+              <Icon name="server" size={16} />
+            </span>
+            <div className="dashboard-mini-stat-content">
+              <span className="dashboard-mini-stat-value" style={{ color: '#3B82F6' }}>{nodeCount}</span>
+              <span className="dashboard-mini-stat-label">Nodes</span>
+            </div>
           </div>
-          <div className="cni-topology-stat">
-            <span className="cni-topology-stat-value">{pods.length}</span>
-            <span className="cni-topology-stat-label">Pods</span>
+          <div className="dashboard-mini-stat">
+            <span className="dashboard-mini-stat-icon" style={{ color: '#10B981' }}>
+              <Icon name="box" size={16} />
+            </span>
+            <div className="dashboard-mini-stat-content">
+              <span className="dashboard-mini-stat-value" style={{ color: '#10B981' }}>{pods.length}</span>
+              <span className="dashboard-mini-stat-label">Pods</span>
+            </div>
           </div>
-          <div className="cni-topology-stat">
-            <span className="cni-topology-stat-value">{bgpPeerCount}</span>
-            <span className="cni-topology-stat-label">BGP Peers</span>
+          <div className="dashboard-mini-stat">
+            <span className="dashboard-mini-stat-icon" style={{ color: '#8B5CF6' }}>
+              <Icon name="git-branch" size={16} />
+            </span>
+            <div className="dashboard-mini-stat-content">
+              <span className="dashboard-mini-stat-value" style={{ color: '#8B5CF6' }}>{bgpPeerCount}</span>
+              <span className="dashboard-mini-stat-label">BGP Peers</span>
+            </div>
           </div>
-          <div className="cni-topology-stat">
-            <span className="cni-topology-stat-value">{overlayCount}</span>
-            <span className="cni-topology-stat-label">Overlay Links</span>
+          <div className="dashboard-mini-stat">
+            <span className="dashboard-mini-stat-icon" style={{ color: '#06B6D4' }}>
+              <Icon name="layers" size={16} />
+            </span>
+            <div className="dashboard-mini-stat-content">
+              <span className="dashboard-mini-stat-value" style={{ color: '#06B6D4' }}>{overlayCount}</span>
+              <span className="dashboard-mini-stat-label">Overlay Links</span>
+            </div>
           </div>
         </div>
 
@@ -280,17 +300,21 @@ export function CniTopologyPanel() {
       </div>
 
       {/* ── Pod & Service Inventory ────────────────────────────────── */}
-      <div className="subsection" style={{ marginTop: '24px' }}>
+      <div className="subsection">
         <div className="subsection-header">
           <h3>Cluster Inventory</h3>
-          <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>
-            {Object.keys(nsCounts).length} namespaces · {pods.length} pods · {services.length} services
+          <span className="dashboard-last-updated">
+            <Icon name="layers" size={14} />
+            {Object.keys(nsCounts).length} namespace{Object.keys(nsCounts).length !== 1 ? 's' : ''} · {pods.length} pod{pods.length !== 1 ? 's' : ''} · {services.length} service{services.length !== 1 ? 's' : ''}
           </span>
         </div>
 
-        {/* Search filter */}
-        <div className="inventory-search">
-          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+        {/* ── Search filter (security-search pattern) ── */}
+        <div className="security-toolbar" style={{ marginBottom: '12px' }}>
+          <div className="security-search">
+            <span className="security-search-icon">
+              <Icon name="search" size={14} />
+            </span>
             <input
               type="text"
               placeholder="Filter by name, namespace, IP, port, or node…"
@@ -298,48 +322,32 @@ export function CniTopologyPanel() {
               onChange={e => setInventoryFilter(e.target.value)}
               onFocus={() => setFilterFocused(true)}
               onBlur={() => setTimeout(() => setFilterFocused(false), 220)}
-              className="inventory-filter-input"
+              className="security-search-input"
               aria-label="Filter pods and services"
             />
             {inventoryFilter && (
               <button
-                className="inventory-filter-clear"
+                className="security-search-clear"
                 onClick={() => setInventoryFilter('')}
                 aria-label="Clear filter"
               >
                 <Icon name="x" size={14} />
               </button>
             )}
-            {!inventoryFilter && !filterFocused && (
-              <span style={{
-                position: 'absolute',
-                right: '10px',
-                color: 'var(--text-tertiary)',
-                fontSize: '11px',
-                pointerEvents: 'none',
-                opacity: 0.4,
-              }}>
-                <Icon name="search" size={14} />
-              </span>
-            )}
           </div>
 
           {/* Port quick-filter chips */}
           {filterFocused && !inventoryFilter && (
-            <div style={{
-              display: 'flex',
-              gap: '6px',
-              flexWrap: 'wrap',
-              padding: '8px 0 4px',
-            }}>
+            <div className="security-filter-chips" style={{ flex: 1, minWidth: 0, overflow: 'auto' }}>
               <span style={{
-                fontSize: '11px',
+                fontSize: '10px',
                 color: 'var(--text-tertiary)',
-                fontWeight: 600,
+                fontWeight: 700,
                 textTransform: 'uppercase',
-                letterSpacing: '0.5px',
+                letterSpacing: '0.6px',
                 alignSelf: 'center',
-                marginRight: '4px',
+                marginRight: '2px',
+                whiteSpace: 'nowrap',
               }}>Ports</span>
               {COMMON_PORT_CHIPS.map(chip => {
                 const counts = portChipCounts[chip.port]
@@ -349,30 +357,12 @@ export function CniTopologyPanel() {
                     key={chip.port}
                     onClick={() => setInventoryFilter(String(chip.port))}
                     title={`${chip.tooltip} — ${counts?.pods ?? 0} pods, ${counts?.services ?? 0} services`}
+                    className={`security-chip${hasMatches ? ' active' : ''}`}
                     style={{
-                      cursor: 'pointer',
-                      background: hasMatches ? 'rgba(59, 130, 246, 0.12)' : 'rgba(148, 163, 184, 0.06)',
-                      color: hasMatches ? '#60A5FA' : 'var(--text-tertiary)',
-                      border: `1px solid ${hasMatches ? 'rgba(59, 130, 246, 0.25)' : 'rgba(148, 163, 184, 0.12)'}`,
-                      borderRadius: '14px',
-                      padding: '3px 10px',
-                      fontSize: '11px',
-                      fontWeight: hasMatches ? 600 : 400,
-                      fontFamily: 'monospace',
-                      transition: 'all 0.15s ease',
                       opacity: hasMatches ? 1 : 0.4,
-                    }}
-                    onMouseEnter={e => {
-                      if (hasMatches) {
-                        e.currentTarget.style.background = 'rgba(59, 130, 246, 0.2)'
-                        e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.4)'
-                      }
-                    }}
-                    onMouseLeave={e => {
-                      if (hasMatches) {
-                        e.currentTarget.style.background = 'rgba(59, 130, 246, 0.12)'
-                        e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.25)'
-                      }
+                      fontSize: '11px',
+                      padding: '5px 10px',
+                      fontFamily: 'monospace',
                     }}
                   >
                     {String(chip.port)}
@@ -384,89 +374,102 @@ export function CniTopologyPanel() {
         </div>
 
         {/* ── Namespace summary chips ──────────────────────────── */}
-        <div className="namespace-chips">
+        <div className="namespace-chips" style={{
+          display: 'flex',
+          gap: '6px',
+          flexWrap: 'wrap',
+          marginBottom: '16px',
+          padding: '10px 14px',
+          backgroundColor: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-lg)',
+          transition: 'border-color 0.2s ease',
+        }}>
+          <span style={{
+            fontSize: '9px',
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            color: 'var(--text-tertiary)',
+            letterSpacing: '0.8px',
+            alignSelf: 'center',
+            marginRight: '4px',
+            opacity: 0.7,
+          }}>NS</span>
           {Object.entries(nsCounts).sort().map(([ns, counts]) => (
             <span
               key={ns}
-              className="namespace-chip"
               style={{
                 backgroundColor: getNsColor(ns),
                 color: '#fff',
-                padding: '2px 10px',
+                padding: '3px 10px',
                 borderRadius: '12px',
                 fontSize: '12px',
                 fontWeight: 600,
                 whiteSpace: 'nowrap',
+                border: '1px solid rgba(255,255,255,0.15)',
+                transition: 'all 0.15s ease',
+                cursor: 'default',
               }}
               title={`${counts.pods} pods · ${counts.services} services`}
             >
-              {ns} ({counts.pods}p / {counts.services}s)
+              {ns} <span style={{ opacity: 0.8, fontWeight: 500 }}>{counts.pods}p / {counts.services}s</span>
             </span>
           ))}
         </div>
 
         {/* ── Pods table ───────────────────────────────────────── */}
-        <div className="inventory-section">
+        <div className="inventory-section" style={{ marginBottom: '24px' }}>
           <button
-            className="inventory-toggle"
+            className="dashboard-card-header-btn inventory-toggle"
             onClick={() => setShowPods(!showPods)}
             aria-expanded={showPods}
-            style={{
-              cursor: 'pointer',
-              background: 'none',
-              border: 'none',
-              fontSize: '14px',
-              fontWeight: 600,
-              color: 'var(--text)',
-              padding: '8px 0',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              width: '100%',
-            }}
           >
-            <span style={{ transform: showPods ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▶</span>
-            <span>Pods</span>
-            <span className="inventory-count" style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-              {filteredPods.length}{inventoryFilter ? ` / ${pods.length}` : ''}
+            <div className="dashboard-card-header-left">
+              <Icon name="box" size={16} style={{ color: '#10B981' }} />
+              <span>Pods</span>
+              <span className="dashboard-card-sub" style={{ padding: 0, marginTop: 0 }}>
+                {filteredPods.length}{inventoryFilter ? ` / ${pods.length}` : ''}
+              </span>
+            </div>
+            <span className="dashboard-card-expand-icon" style={{ transform: showPods ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s ease' }}>
+              <Icon name="chevron-right" size={14} />
             </span>
           </button>
 
           {showPods && filteredPods.length > 0 && (
-            <div className="inventory-table-wrapper" style={{ overflowX: 'auto' }}>
-              <table className="inventory-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+            <div className="storage-table-wrapper" style={{ marginTop: '8px' }}>
+              <table className="storage-table" style={{ fontSize: '12px' }}>
                 <thead>
                   <tr>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)', fontWeight: 600, whiteSpace: 'nowrap' }}>Name</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)', fontWeight: 600, whiteSpace: 'nowrap' }}>Namespace</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)', fontWeight: 600, whiteSpace: 'nowrap' }}>IP</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)', fontWeight: 600, whiteSpace: 'nowrap' }}>Ports</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)', fontWeight: 600, whiteSpace: 'nowrap' }}>Node</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)', fontWeight: 600, whiteSpace: 'nowrap' }}>Phase</th>
+                    <th>Name</th>
+                    <th>Namespace</th>
+                    <th>IP</th>
+                    <th>Ports</th>
+                    <th>Node</th>
+                    <th>Phase</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredPods.map(p => (
-                    <tr key={`${p.namespace}/${p.name}`} className="inventory-row" style={{ transition: 'background 0.1s' }}>
-                      <td style={{ padding: '4px 8px', borderBottom: '1px solid var(--border-subtle)', fontFamily: 'monospace', fontSize: '12px' }}>{p.name}</td>
-                      <td style={{ padding: '4px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
-                        <span style={{
+                    <tr key={`${p.namespace}/${p.name}`} className="stagger-item" style={{ animationDelay: '0s' }}>
+                      <td className="cell-mono">{p.name}</td>
+                      <td>
+                        <span className="namespace-badge-cell" style={{
                           backgroundColor: getNsColor(p.namespace),
                           color: '#fff',
-                          padding: '1px 6px',
+                          padding: '2px 8px',
                           borderRadius: '8px',
                           fontSize: '11px',
                           fontWeight: 600,
+                          display: 'inline-block',
                         }}>{p.namespace}</span>
                       </td>
-                      <td style={{ padding: '4px 8px', borderBottom: '1px solid var(--border-subtle)', fontFamily: 'monospace', fontSize: '12px', color: 'var(--text-secondary)' }}>{p.pod_ip}</td>
-                      <td style={{ padding: '4px 8px', borderBottom: '1px solid var(--border-subtle)', fontFamily: 'monospace', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                      <td className="cell-mono" style={{ color: 'var(--text-secondary)' }}>{p.pod_ip || <span className="empty-cell">—</span>}</td>
+                      <td className="cell-mono" style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
                         <PodPortsBadge containers={p.containers} />
                       </td>
-                      <td style={{ padding: '4px 8px', borderBottom: '1px solid var(--border-subtle)', fontFamily: 'monospace', fontSize: '12px', color: 'var(--text-secondary)' }}>{p.node_name}</td>
-                      <td style={{ padding: '4px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
-                        <PhaseBadge phase={p.phase} />
-                      </td>
+                      <td className="cell-mono" style={{ color: 'var(--text-secondary)' }}>{p.node_name}</td>
+                      <td><PhaseBadge phase={p.phase} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -475,7 +478,7 @@ export function CniTopologyPanel() {
           )}
 
           {showPods && filteredPods.length === 0 && (
-            <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+            <div className="empty" style={{ marginTop: '8px' }}>
               {inventoryFilter ? 'No pods match your filter.' : 'No pod data available.'}
             </div>
           )}
@@ -484,77 +487,67 @@ export function CniTopologyPanel() {
         {/* ── Services table ───────────────────────────────────── */}
         <div className="inventory-section">
           <button
-            className="inventory-toggle"
+            className="dashboard-card-header-btn inventory-toggle"
             onClick={() => setShowServices(!showServices)}
             aria-expanded={showServices}
-            style={{
-              cursor: 'pointer',
-              background: 'none',
-              border: 'none',
-              fontSize: '14px',
-              fontWeight: 600,
-              color: 'var(--text)',
-              padding: '8px 0',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              width: '100%',
-            }}
           >
-            <span style={{ transform: showServices ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▶</span>
-            <span>Services</span>
-            <span className="inventory-count" style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-              {filteredServices.length}{inventoryFilter ? ` / ${services.length}` : ''}
+            <div className="dashboard-card-header-left">
+              <Icon name="zap" size={16} style={{ color: '#8B5CF6' }} />
+              <span>Services</span>
+              <span className="dashboard-card-sub" style={{ padding: 0, marginTop: 0 }}>
+                {filteredServices.length}{inventoryFilter ? ` / ${services.length}` : ''}
+              </span>
+            </div>
+            <span className="dashboard-card-expand-icon" style={{ transform: showServices ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s ease' }}>
+              <Icon name="chevron-right" size={14} />
             </span>
           </button>
 
           {showServices && filteredServices.length > 0 && (
-            <div className="inventory-table-wrapper" style={{ overflowX: 'auto' }}>
-              <table className="inventory-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+            <div className="storage-table-wrapper" style={{ marginTop: '8px' }}>
+              <table className="storage-table" style={{ fontSize: '12px' }}>
                 <thead>
                   <tr>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)', fontWeight: 600, whiteSpace: 'nowrap' }}>Name</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)', fontWeight: 600, whiteSpace: 'nowrap' }}>Namespace</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)', fontWeight: 600, whiteSpace: 'nowrap' }}>Cluster IP</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)', fontWeight: 600, whiteSpace: 'nowrap' }}>Ports</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)', fontWeight: 600, whiteSpace: 'nowrap' }}>Endpoints</th>
+                    <th>Name</th>
+                    <th>Namespace</th>
+                    <th>Cluster IP</th>
+                    <th>Ports</th>
+                    <th>Endpoints</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredServices.map(s => (
-                    <tr key={s.id} className="inventory-row" style={{ transition: 'background 0.1s' }}>
-                      <td style={{ padding: '4px 8px', borderBottom: '1px solid var(--border-subtle)', fontFamily: 'monospace', fontSize: '12px' }}>{s.name}</td>
-                      <td style={{ padding: '4px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
-                        <span style={{
+                    <tr key={s.id} className="stagger-item" style={{ animationDelay: '0s' }}>
+                      <td className="cell-mono">{s.name}</td>
+                      <td>
+                        <span className="namespace-badge-cell" style={{
                           backgroundColor: getNsColor(s.namespace),
                           color: '#fff',
-                          padding: '1px 6px',
+                          padding: '2px 8px',
                           borderRadius: '8px',
                           fontSize: '11px',
                           fontWeight: 600,
+                          display: 'inline-block',
                         }}>{s.namespace}</span>
                       </td>
-                      <td style={{ padding: '4px 8px', borderBottom: '1px solid var(--border-subtle)', fontFamily: 'monospace', fontSize: '12px', color: 'var(--text-secondary)' }}>{s.clusterIp}</td>
-                      <td style={{ padding: '4px 8px', borderBottom: '1px solid var(--border-subtle)', fontFamily: 'monospace', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                      <td className="cell-mono" style={{ color: 'var(--text-secondary)' }}>{s.clusterIp}</td>
+                      <td className="cell-mono" style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
                         {s.ports ? (
                           <span title={s.ports} style={{ cursor: 'help' }}>
                             {s.ports.length > 30 ? s.ports.slice(0, 28) + '…' : s.ports}
                           </span>
                         ) : (
-                          <span style={{ color: 'var(--text-tertiary)', fontStyle: 'italic' }}>—</span>
+                          <span className="empty-cell">—</span>
                         )}
                       </td>
-                      <td style={{ padding: '4px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
-                        <span style={{
-                          backgroundColor: servicePodCounts[s.id] ? 'var(--accent-bg, rgba(59,130,246,0.12))' : 'transparent',
-                          color: servicePodCounts[s.id] ? 'var(--accent, #3B82F6)' : 'var(--text-tertiary)',
-                          padding: '1px 8px',
-                          borderRadius: '10px',
-                          fontSize: '12px',
-                          fontWeight: 600,
-                        }}>
-                          {servicePodCounts[s.id] ?? 0} pods
-                        </span>
+                      <td>
+                        {servicePodCounts[s.id] ? (
+                          <span className="badge badge-success" style={{ fontSize: '11px' }}>
+                            {servicePodCounts[s.id]} pod{servicePodCounts[s.id] !== 1 ? 's' : ''}
+                          </span>
+                        ) : (
+                          <span className="badge badge-muted" style={{ fontSize: '11px' }}>0 pods</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -564,12 +557,53 @@ export function CniTopologyPanel() {
           )}
 
           {showServices && filteredServices.length === 0 && (
-            <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+            <div className="empty" style={{ marginTop: '8px' }}>
               {inventoryFilter ? 'No services match your filter.' : 'No service data available.'}
             </div>
           )}
         </div>
       </div>
+
+      {/* ── Scoped CSS for custom bits ── */}
+      <style>{`
+        .inventory-section {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 16px;
+          transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .inventory-section:hover {
+          border-color: var(--border-hover);
+          box-shadow: var(--shadow-hover);
+        }
+        .inventory-toggle {
+          padding: 0 !important;
+        }
+        .namespace-badge-cell {
+          transition: all 0.15s ease;
+        }
+        .namespace-badge-cell:hover {
+          filter: brightness(1.15);
+        }
+        .empty-cell {
+          color: var(--text-tertiary);
+          font-style: italic;
+        }
+        .cni-topology-section .dashboard-compact-bar {
+          margin-bottom: 16px;
+        }
+        .cni-topology-section .namespace-chips:hover {
+          border-color: var(--border-hover);
+        }
+        .namespace-chips > span {
+          transition: filter 0.15s ease, transform 0.15s ease;
+        }
+        .namespace-chips > span:hover {
+          filter: brightness(1.2);
+          transform: translateY(-1px);
+        }
+      `}</style>
     </div>
   )
 }

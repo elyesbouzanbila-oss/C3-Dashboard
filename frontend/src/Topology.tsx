@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import cytoscape from 'cytoscape'
 import './Topology.css'
 import { getNsColor } from './utils'
+import { DonutChart } from './components/DonutChart'
 
 interface TopologyNode {
   id: string
@@ -48,6 +49,33 @@ type EleStyle = Record<string, string | number | boolean | ((ele: cytoscape.Node
 const getNamespaceColor = (ns?: string): string =>
   getNsColor(ns || '')
 
+/** Inline SVG icon components to avoid extra dependencies */
+const ZoomInIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="11" cy="11" r="8" />
+    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    <line x1="11" y1="8" x2="11" y2="14" />
+    <line x1="8" y1="11" x2="14" y2="11" />
+  </svg>
+)
+
+const ZoomOutIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="11" cy="11" r="8" />
+    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    <line x1="8" y1="11" x2="14" y2="11" />
+  </svg>
+)
+
+const FitIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="15 3 21 3 21 9" />
+    <polyline points="9 21 3 21 3 15" />
+    <line x1="21" y1="3" x2="14" y2="10" />
+    <line x1="3" y1="21" x2="10" y2="14" />
+  </svg>
+)
+
 export function Topology({ nodes, edges }: TopologyProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const toastRef = useRef<HTMLDivElement>(null)
@@ -60,6 +88,27 @@ export function Topology({ nodes, edges }: TopologyProps) {
   const podNodes = nodes.filter(n => n.type === 'pod')
   const serviceNodes = nodes.filter(n => n.type === 'service')
   const offlineNodes = clusterNodes.filter(n => n.ready === false)
+
+  // ── Zoom helpers ──────────────────────────────────────────────
+  const handleZoomIn = useCallback(() => {
+    const cy = cyRef.current
+    if (!cy) return
+    cy.zoom(cy.zoom() * 1.3)
+    cy.center()
+  }, [])
+
+  const handleZoomOut = useCallback(() => {
+    const cy = cyRef.current
+    if (!cy) return
+    cy.zoom(cy.zoom() * 0.75)
+    cy.center()
+  }, [])
+
+  const handleFit = useCallback(() => {
+    const cy = cyRef.current
+    if (!cy) return
+    cy.fit(undefined, 30)
+  }, [])
 
   useEffect(() => {
     if (!containerRef.current || nodes.length === 0) return
@@ -719,6 +768,16 @@ export function Topology({ nodes, edges }: TopologyProps) {
     return acc
   }, {} as Record<string, number>)
 
+  // Compute health percentage for donut chart
+  const totalNodeCount = clusterNodes.length
+  const healthyNodeCount = clusterNodes.filter(n => n.ready !== false).length
+  const healthPct = totalNodeCount > 0 ? (healthyNodeCount / totalNodeCount) * 100 : 0
+
+  const healthColor =
+    healthPct >= 90 ? 'var(--success)' :
+    healthPct >= 70 ? 'var(--warning)' :
+    'var(--danger)'
+
   // ── Keyboard navigation ──
   // eslint-disable-next-line react-hooks/preserve-manual-memoization -- array deps change each render
   const nodeList = useMemo(() => [...podNodes, ...serviceNodes], [podNodes, serviceNodes])
@@ -810,32 +869,101 @@ export function Topology({ nodes, edges }: TopologyProps) {
       tabIndex={0}
       onKeyDown={handleKeyDown}
     >
+      {/* ── Polished Stats Bar (compact-bar pattern) ── */}
       <div className="topology-stats-bar">
         <div className="stat">
           <span className="stat-dot master-dot" />
-          <span>Master: {masterNodes.length}</span>
+          <div className="stat-content">
+            <span className="stat-value" style={{ color: '#EC4899' }}>{masterNodes.length}</span>
+            <span className="stat-label">Master{masterNodes.length !== 1 ? 's' : ''}</span>
+          </div>
         </div>
         <div className="stat">
           <span className="stat-dot worker-dot" />
-          <span>Workers: {workerNodes.length}{offlineNodes.length > 0 && ` (${offlineNodes.length} offline)`}</span>
+          <div className="stat-content">
+            <span className="stat-value" style={{ color: '#3B82F6' }}>{workerNodes.length}</span>
+            <span className="stat-label">Worker{workerNodes.length !== 1 ? 's' : ''}</span>
+          </div>
         </div>
         <div className="stat">
           <span className="stat-dot pod-dot" />
-          <span>Pods: {podNodes.length}</span>
+          <div className="stat-content">
+            <span className="stat-value" style={{ color: '#10B981' }}>{podNodes.length}</span>
+            <span className="stat-label">Pod{podNodes.length !== 1 ? 's' : ''}</span>
+          </div>
         </div>
         <div className="stat">
           <span className="stat-dot service-dot" />
-          <span>Services: {serviceNodes.length}</span>
+          <div className="stat-content">
+            <span className="stat-value" style={{ color: '#8B5CF6' }}>{serviceNodes.length}</span>
+            <span className="stat-label">Service{serviceNodes.length !== 1 ? 's' : ''}</span>
+          </div>
         </div>
         <div className="stat">
           <span className="stat-dot edge-dot" />
-          <span>Connections: {edges.length}</span>
+          <div className="stat-content">
+            <span className="stat-value" style={{ color: 'var(--text-secondary)' }}>{edges.length}</span>
+            <span className="stat-label">Connection{edges.length !== 1 ? 's' : ''}</span>
+          </div>
+        </div>
+
+        {/* Right side: health donut + offline badge */}
+        <div className="stats-actions">
+          {totalNodeCount > 0 && (
+            <div className="stats-health-badge" title={`${healthyNodeCount}/${totalNodeCount} nodes healthy`}>
+              <DonutChart
+                percentage={healthPct}
+                size={22}
+                strokeWidth={3}
+                color={healthColor}
+                showLabel={false}
+                glow
+              />
+              <span style={{ color: healthColor, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                {healthPct.toFixed(0)}%
+              </span>
+              <span style={{ color: 'var(--text-tertiary)' }}>healthy</span>
+            </div>
+          )}
+          {offlineNodes.length > 0 && (
+            <span className="stats-health-badge" style={{ borderColor: 'rgba(239, 68, 68, 0.3)', color: 'var(--danger)' }}>
+              ⚠ {offlineNodes.length} offline
+            </span>
+          )}
         </div>
       </div>
 
       <div className="topology-graph-wrapper">
         <div ref={containerRef} className="topology-graph" />
         <div ref={toastRef} className="topology-toast" role="status" aria-live="polite" />
+
+        {/* ── Zoom Controls Overlay ── */}
+        <div className="topology-zoom-controls">
+          <button
+            className="topology-zoom-btn"
+            onClick={handleZoomIn}
+            title="Zoom in"
+            aria-label="Zoom in"
+          >
+            <ZoomInIcon />
+          </button>
+          <button
+            className="topology-zoom-btn"
+            onClick={handleZoomOut}
+            title="Zoom out"
+            aria-label="Zoom out"
+          >
+            <ZoomOutIcon />
+          </button>
+          <button
+            className="topology-zoom-btn"
+            onClick={handleFit}
+            title="Fit all elements"
+            aria-label="Fit all elements"
+          >
+            <FitIcon />
+          </button>
+        </div>
       </div>
 
       <div className="topology-legend">
@@ -908,7 +1036,26 @@ export function Topology({ nodes, edges }: TopologyProps) {
       </div>
 
       <div className="topology-hint">
-        💡 Click any element for details • Hover to highlight • Double-click to fit all
+        💡 Click any element for details • Hover to highlight • Double-click or use
+        <button
+          onClick={handleFit}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'var(--primary)',
+            cursor: 'pointer',
+            fontSize: 'inherit',
+            fontStyle: 'italic',
+            fontFamily: 'inherit',
+            padding: '0 2px',
+            textDecoration: 'underline',
+            textDecorationStyle: 'dotted',
+          }}
+          aria-label="Fit all elements"
+        >
+          Fit All
+        </button>
+        {' '}to reset view • Zoom with scroll/buttons
       </div>
     </div>
   )

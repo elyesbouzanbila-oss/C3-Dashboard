@@ -1,68 +1,137 @@
-/* ─── Topology Container ──────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   Topology Component — Polished Theme
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── Container (gradient-border-card pattern) ─────────────── */
 .topology-container {
+  position: relative;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
   background: var(--surface);
-  transition: box-shadow 0.3s ease;
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+  animation: topologyFadeIn 0.5s ease-out;
+}
+
+.topology-container::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: calc(var(--radius-lg) + 1px);
+  padding: 1.5px;
+  background: linear-gradient(135deg, transparent 30%, transparent 70%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.5s ease, background 0.7s ease;
+  z-index: 5;
+}
+
+.topology-container:hover::after {
+  opacity: 1;
+  background: linear-gradient(135deg, var(--primary), transparent 35%, transparent 65%, var(--info));
 }
 
 .topology-container:hover {
-  box-shadow: 0 4px 32px rgba(0, 0, 0, 0.4);
+  border-color: var(--border-hover);
+  box-shadow: 0 6px 32px rgba(0, 0, 0, 0.4);
 }
 
-/* ─── Stats Bar ───────────────────────────────────────────────── */
+@keyframes topologyFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Focus visible for container ─────────────────────────── */
+.topology-container:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ─── Stats Bar (compact-bar pattern) ─────────────────────────── */
 .topology-stats-bar {
   display: flex;
-  gap: 20px;
-  padding: 12px 18px;
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.9) 100%);
+  align-items: center;
+  gap: 4px;
+  padding: 10px 14px;
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
-  backdrop-filter: blur(10px);
+  flex-wrap: wrap;
+  transition: border-color 0.2s ease;
+}
+
+.topology-stats-bar:hover {
+  border-color: var(--border-hover);
 }
 
 .stat {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 7px;
-  font-size: 12px;
+  gap: 8px;
+  padding: 6px 12px;
+  background: none;
+  border: none;
+  border-radius: var(--radius);
   color: var(--text-secondary);
-  white-space: nowrap;
-  font-weight: 500;
-  padding: 4px 10px;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  font-size: 12px;
+  min-width: 0;
   transition: all 0.2s ease;
+  cursor: default;
+  white-space: nowrap;
 }
 
 .stat:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.08);
+  background-color: rgba(255, 255, 255, 0.04);
   transform: translateY(-1px);
 }
 
+.stat:active {
+  transform: scale(0.97);
+}
+
 .stat-dot {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   flex-shrink: 0;
-  transition: transform 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .stat:hover .stat-dot {
   transform: scale(1.3);
 }
 
-.master-dot { background-color: #EC4899; box-shadow: 0 0 6px rgba(236, 72, 153, 0.4); }
-.worker-dot { background-color: #3B82F6; box-shadow: 0 0 6px rgba(59, 130, 246, 0.4); }
-.pod-dot { background-color: #10B981; box-shadow: 0 0 6px rgba(16, 185, 129, 0.4); }
-.service-dot { background-color: #8B5CF6; box-shadow: 0 0 6px rgba(139, 92, 246, 0.4); }
-.ns-dot { background-color: #6366F1; box-shadow: 0 0 6px rgba(99, 102, 241, 0.4); }
+.master-dot {
+  background-color: #EC4899;
+  box-shadow: 0 0 6px rgba(236, 72, 153, 0.4);
+}
+
+.worker-dot {
+  background-color: #3B82F6;
+  box-shadow: 0 0 6px rgba(59, 130, 246, 0.4);
+}
+
+.pod-dot {
+  background-color: #10B981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.4);
+}
+
+.service-dot {
+  background-color: #8B5CF6;
+  box-shadow: 0 0 6px rgba(139, 92, 246, 0.4);
+}
+
+.ns-dot {
+  background-color: #6366F1;
+  box-shadow: 0 0 6px rgba(99, 102, 241, 0.4);
+}
+
 .edge-dot {
   background-color: transparent;
   width: 0;
@@ -73,34 +142,82 @@
   filter: drop-shadow(0 0 3px rgba(148, 163, 184, 0.3));
 }
 
+.stat-value {
+  font-weight: 700;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  transition: color 0.2s ease;
+}
+
+.stat:hover .stat-value {
+  color: var(--text);
+}
+
+.stat-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+/* ─── Stats right section (donut + actions) ───────────────── */
+.stats-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.stats-health-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  cursor: help;
+  transition: all 0.2s ease;
+}
+
+.stats-health-badge:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
 /* ─── Graph Canvas with Dot-Grid Background ──────────────────── */
 .topology-graph-wrapper {
   position: relative;
   height: 580px;
   background:
-    /* Dot grid pattern */
     radial-gradient(circle, rgba(59, 130, 246, 0.06) 1px, transparent 1px),
-    /* Main gradient */
     linear-gradient(180deg, rgba(10, 14, 26, 0.98) 0%, rgba(19, 26, 46, 0.95) 50%, rgba(10, 14, 26, 0.98) 100%);
-  background-size:
-    24px 24px,
-    100% 100%;
-  border-bottom: 1px solid var(--border);
+  background-size: 24px 24px, 100% 100%;
   overflow: hidden;
+  transition: background-size 0.3s ease;
 }
 
-/* Subtle glow at the center of the graph area */
+/* Subtle animated glow at the center */
 .topology-graph-wrapper::before {
   content: '';
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 400px;
-  height: 400px;
+  width: 500px;
+  height: 500px;
   transform: translate(-50%, -50%);
-  background: radial-gradient(circle, rgba(59, 130, 246, 0.03) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.04) 0%, transparent 70%);
   pointer-events: none;
   z-index: 0;
+  animation: topologyGlowPulse 6s ease-in-out infinite;
+}
+
+@keyframes topologyGlowPulse {
+  0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(1); }
+  50% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
 }
 
 .topology-graph {
@@ -110,15 +227,67 @@
   z-index: 1;
 }
 
-/* ─── Toast Info Bar ──────────────────────────────────────────── */
+/* ─── Zoom Controls Overlay ─────────────────────────────────── */
+.topology-zoom-controls {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.topology-graph-wrapper:hover .topology-zoom-controls {
+  opacity: 1;
+}
+
+.topology-zoom-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.topology-zoom-btn:hover {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: var(--text);
+  transform: scale(1.05);
+}
+
+.topology-zoom-btn:active {
+  transform: scale(0.95);
+}
+
+.topology-zoom-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ─── Toast Info Bar (glass-morphism) ────────────────────────── */
 .topology-toast {
   position: absolute;
-  bottom: 14px;
+  bottom: 16px;
   left: 50%;
   transform: translateX(-50%) translateY(20px);
-  background: rgba(15, 23, 42, 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
   padding: 12px 22px;
@@ -132,8 +301,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   font-family: 'SF Mono', 'Courier New', monospace;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(59, 130, 246, 0.05);
   z-index: 100;
+  line-height: 1.5;
 }
 
 .topology-toast.visible {
@@ -144,30 +314,33 @@
 /* ─── Legend ──────────────────────────────────────────────────── */
 .topology-legend {
   display: flex;
-  gap: 28px;
+  gap: 24px;
   padding: 14px 18px;
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(22, 27, 34, 0.85) 100%);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.85) 0%, rgba(22, 27, 34, 0.8) 100%);
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
   flex-wrap: wrap;
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
 .legend-section {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
   min-width: 130px;
 }
 
 .legend-title {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
   color: var(--text-tertiary);
-  letter-spacing: 0.8px;
+  letter-spacing: 0.9px;
   margin-bottom: 4px;
-  opacity: 0.8;
+  opacity: 0.7;
+  padding-bottom: 3px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
 .legend-item {
@@ -177,13 +350,30 @@
   font-size: 11px;
   color: var(--text-secondary);
   white-space: nowrap;
-  padding: 2px 4px;
-  border-radius: 4px;
-  transition: background-color 0.15s ease;
+  padding: 3px 6px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  animation: legendItemFadeIn 0.4s ease-out both;
+}
+
+.legend-item:nth-child(2) { animation-delay: 0.03s; }
+.legend-item:nth-child(3) { animation-delay: 0.06s; }
+.legend-item:nth-child(4) { animation-delay: 0.09s; }
+.legend-item:nth-child(5) { animation-delay: 0.12s; }
+.legend-item:nth-child(6) { animation-delay: 0.15s; }
+.legend-item:nth-child(7) { animation-delay: 0.18s; }
+.legend-item:nth-child(8) { animation-delay: 0.21s; }
+.legend-item:nth-child(9) { animation-delay: 0.24s; }
+.legend-item:nth-child(10) { animation-delay: 0.27s; }
+
+@keyframes legendItemFadeIn {
+  from { opacity: 0; transform: translateX(-6px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
 .legend-item:hover {
   background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
 }
 
 .legend-ip {
@@ -204,11 +394,12 @@
   border-radius: 50%;
   border: 1.5px solid rgba(255, 255, 255, 0.15);
   flex-shrink: 0;
-  transition: transform 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .legend-item:hover .legend-color {
-  transform: scale(1.3);
+  transform: scale(1.35);
+  box-shadow: 0 0 8px currentColor;
 }
 
 .legend-color.master-bg {
@@ -281,13 +472,18 @@
 /* ─── Hint Bar ────────────────────────────────────────────────── */
 .topology-hint {
   padding: 10px 16px;
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.6), rgba(10, 14, 26, 0.8));
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.5), rgba(10, 14, 26, 0.7));
   font-size: 11px;
   color: var(--text-tertiary);
   text-align: center;
   font-style: italic;
   letter-spacing: 0.3px;
   border-top: 1px solid rgba(255, 255, 255, 0.03);
+  transition: color 0.2s ease;
+}
+
+.topology-container:hover .topology-hint {
+  color: var(--text-secondary);
 }
 
 /* ─── Smooth Animation ───────────────────────────────────────── */
@@ -296,35 +492,26 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-.topology-container {
-  animation: fadeIn 0.4s ease-out;
-}
-
 /* ─── Scrollbar ───────────────────────────────────────────────── */
-.topology-legend::-webkit-scrollbar {
+.topology-legend::-webkit-scrollbar,
+.topology-stats-bar::-webkit-scrollbar {
   height: 4px;
 }
 
-.topology-legend::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.1);
-}
-
-.topology-legend::-webkit-scrollbar-thumb {
-  background: rgba(59, 130, 246, 0.3);
-  border-radius: 2px;
-}
-
-.topology-stats-bar::-webkit-scrollbar {
-  height: 3px;
-}
-
+.topology-legend::-webkit-scrollbar-track,
 .topology-stats-bar::-webkit-scrollbar-track {
   background: rgba(0, 0, 0, 0.1);
 }
 
+.topology-legend::-webkit-scrollbar-thumb,
 .topology-stats-bar::-webkit-scrollbar-thumb {
   background: rgba(59, 130, 246, 0.25);
   border-radius: 2px;
+}
+
+.topology-legend::-webkit-scrollbar-thumb:hover,
+.topology-stats-bar::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.4);
 }
 
 /* ─── Responsive ──────────────────────────────────────────────── */
@@ -340,25 +527,39 @@
   .legend-section {
     min-width: 100px;
   }
+
+  .topology-zoom-controls {
+    opacity: 1;
+  }
 }
 
 @media (max-width: 768px) {
   .topology-graph-wrapper {
     height: 380px;
-    background-size:
-      20px 20px,
-      100% 100%;
+    background-size: 20px 20px, 100% 100%;
   }
 
   .topology-stats-bar {
-    gap: 12px;
-    padding: 8px 12px;
+    gap: 2px;
+    padding: 8px 10px;
     flex-wrap: wrap;
   }
 
   .stat {
     font-size: 11px;
-    padding: 3px 8px;
+    padding: 4px 8px;
+  }
+
+  .stat-value {
+    font-size: 12px;
+  }
+
+  .stats-actions {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-end;
+    padding-top: 4px;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
   }
 
   .topology-legend {
@@ -370,7 +571,7 @@
   .legend-section {
     flex-direction: row;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 5px;
     align-items: center;
     min-width: auto;
   }
@@ -383,5 +584,15 @@
   .topology-hint {
     font-size: 10px;
     padding: 8px 12px;
+  }
+
+  .topology-zoom-controls {
+    bottom: 10px;
+    right: 10px;
+  }
+
+  .topology-zoom-btn {
+    width: 30px;
+    height: 30px;
   }
 }
