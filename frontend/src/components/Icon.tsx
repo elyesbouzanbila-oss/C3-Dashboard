@@ -42,6 +42,10 @@ export type IconName =
   | 'globe'
   | 'grid'
   | 'download'
+  | 'bot'
+  | 'message-circle'
+  | 'user'
+  | 'send'
 
 const ICON_PATHS: Record<IconName, { viewBox: string; paths: React.ReactNode }> = {
   'chevron-right': {
@@ -351,6 +355,46 @@ const ICON_PATHS: Record<IconName, { viewBox: string; paths: React.ReactNode }> 
         <rect x="14" y="3" width="7" height="7" strokeWidth="2" />
         <rect x="3" y="14" width="7" height="7" strokeWidth="2" />
         <rect x="14" y="14" width="7" height="7" strokeWidth="2" />
+      </>
+    ),
+  },
+  bot: {
+    viewBox: '0 0 24 24',
+    paths: (
+      <>
+        <rect x="3" y="11" width="18" height="10" rx="2" strokeWidth="2" />
+        <circle cx="12" cy="5" r="2" strokeWidth="2" />
+        <path d="M12 9v4" strokeWidth="2" />
+        <path d="M8 16h.01" strokeWidth="2" />
+        <path d="M16 16h.01" strokeWidth="2" />
+        <line x1="8" y1="13" x2="16" y2="13" strokeWidth="2" />
+      </>
+    ),
+  },
+  'message-circle': {
+    viewBox: '0 0 24 24',
+    paths: (
+      <>
+        <path d="M21 12a9 9 0 1 1-9-9 9 9 0 0 1 9 9z" strokeWidth="2" />
+        <path d="M21 15v4a2 2 0 0 1-2 2h-4" strokeWidth="2" />
+      </>
+    ),
+  },
+  user: {
+    viewBox: '0 0 24 24',
+    paths: (
+      <>
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" strokeWidth="2" />
+        <circle cx="12" cy="7" r="4" strokeWidth="2" />
+      </>
+    ),
+  },
+  send: {
+    viewBox: '0 0 24 24',
+    paths: (
+      <>
+        <line x1="22" y1="2" x2="11" y2="13" strokeWidth="2" />
+        <polygon points="22 2 15 22 11 13 2 9 22 2" strokeWidth="2" />
       </>
     ),
   },

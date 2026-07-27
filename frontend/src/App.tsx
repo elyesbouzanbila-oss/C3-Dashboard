@@ -12,6 +12,7 @@ import { CniTopologyPanel } from './components/CniTopologyPanel'
 import { DiagnosticsPanel } from './components/DiagnosticsPanel'
 import { ThreatPanel } from './components/ThreatPanel'
 import { SecurityPanel } from './components/SecurityPanel'
+import { ChatPanel } from './components/ChatPanel'
 
 interface TabDef {
   id: string
@@ -204,6 +205,8 @@ function AppContent() {
         <span className="footer-sep">·</span>
         <span>{currentTime.toLocaleTimeString()}</span>
       </footer>
+
+      <ChatPanel />
     </div>
   )
 }

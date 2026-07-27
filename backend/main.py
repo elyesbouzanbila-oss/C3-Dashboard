@@ -13,6 +13,7 @@ from routers import threats as threats_router
 from routers import mock
 from routers import cni as cni_router
 from routers import security as security_router
+from routers import ai as ai_router
 from services.logging_service import get_logger
 
 logger = get_logger(__name__)
@@ -94,3 +95,4 @@ app.include_router(network_router.router, prefix="/api/network", tags=["network"
 app.include_router(threats_router.router, prefix="/api/threats", tags=["threats"])
 app.include_router(cni_router.router)
 app.include_router(security_router.router)
+app.include_router(ai_router.router)

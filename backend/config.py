@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     PROMETHEUS_URL: str = "http://prometheus-k8s.monitoring.svc:9090"
     PROMETHEUS_TIMEOUT: int = 10
 
+    # AI / LLM settings
+    AI_API_KEY: Optional[str] = None
+    AI_MODEL: str = "mistralai/Mixtral-8x7B-Instruct-v0.1"
+    AI_BASE_URL: str = "https://api.together.xyz/v1"
+    AI_ENABLED: bool = False
+
     @field_validator("API_KEY")
     @classmethod
     def warn_placeholder(cls, v: str) -> str:
