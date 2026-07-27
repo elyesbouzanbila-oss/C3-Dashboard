@@ -1,17 +1,21 @@
 # ---- Build Stage ----
-FROM node:22-alpine AS build
+# Using bookworm-slim (Debian 12 + glibc) instead of Alpine because
+# the Alpine + OpenSSL 3.x combination has known TLS stream corruption
+# issues (ERR_SSL_CIPHER_OPERATION_FAILED) when npm downloads packages.
+FROM node:22-bookworm-slim AS build
 
 WORKDIR /app
 
-# Fix OpenSSL 3.x cipher incompatibility with npm on Alpine
-ENV NODE_OPTIONS="--openssl-legacy-provider"
+# npm config: retry on transient network failures, prefer local cache
+RUN npm config set fetch-retries 5 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000
 
 COPY package.json package-lock.json* ./
-RUN npm cache clean --force && \
-    npm install --omit=optional --no-audit --no-fund --network-timeout=120000
 
-# Install native binding for Alpine (musl) — otherwise rolldown fails
-RUN npm install @rolldown/binding-linux-x64-musl --no-save --no-audit --no-fund --network-timeout=120000
+# Use npm ci (clean install) — faster, strict lockfile checking, and
+# avoids the SSL cipher corruption issue seen with npm install on Alpine.
+RUN npm ci --omit=optional --no-audit --no-fund --prefer-offline
 
 COPY . .
 
