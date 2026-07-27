@@ -4,6 +4,7 @@ import type { CalicoNodeStatus } from '../types'
 import { DataSourceBadge } from './DataSourceBadge'
 import { Skeleton } from './Skeleton'
 import { Icon } from './Icon'
+import { DonutChart } from './DonutChart'
 
 interface DashboardPanelProps {
   onNavigate?: (tabId: string) => void
@@ -54,84 +55,6 @@ function useCountUp(target: number, duration = 800, enabled = true) {
   }, [target, duration, enabled])
 
   return value
-}
-
-// ── SVG Donut Chart ───────────────────────────────────────────
-function DonutChart({
-  percentage,
-  size = 80,
-  strokeWidth = 8,
-  color = 'var(--info)',
-  bgColor = 'rgba(255, 255, 255, 0.06)',
-  animated = true,
-}: {
-  percentage: number
-  size?: number
-  strokeWidth?: number
-  color?: string
-  bgColor?: string
-  animated?: boolean
-}) {
-  const radius = (size - strokeWidth) / 2
-  const circumference = 2 * Math.PI * radius
-  const [offset, setOffset] = useState(animated ? circumference : circumference * (1 - percentage / 100))
-
-  useEffect(() => {
-    if (!animated) {
-      setOffset(circumference * (1 - percentage / 100))
-      return
-    }
-    const timer = setTimeout(() => {
-      setOffset(circumference * (1 - percentage / 100))
-    }, 100)
-    return () => clearTimeout(timer)
-  }, [percentage, circumference, animated])
-
-  const pctColor =
-    percentage >= 90 ? 'var(--danger)' :
-    percentage >= 70 ? 'var(--warning)' :
-    percentage >= 40 ? 'var(--primary)' :
-    color
-
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="donut-chart" aria-hidden="true">
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={radius}
-        fill="none"
-        stroke={bgColor}
-        strokeWidth={strokeWidth}
-      />
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={radius}
-        fill="none"
-        stroke={pctColor}
-        strokeWidth={strokeWidth}
-        strokeLinecap="round"
-        strokeDasharray={circumference}
-        strokeDashoffset={offset}
-        transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        style={{
-          transition: animated ? 'stroke-dashoffset 1s ease, stroke 0.4s ease' : 'none',
-        }}
-      />
-      <text
-        x={size / 2}
-        y={size / 2}
-        textAnchor="middle"
-        dominantBaseline="central"
-        fill="currentColor"
-        fontSize={size * 0.22}
-        fontWeight={700}
-        style={{ fontVariantNumeric: 'tabular-nums' }}
-      >
-        {Math.round(percentage)}%
-      </text>
-    </svg>
-  )
 }
 
 // ── Mini Threat Summary ───────────────────────────────────────

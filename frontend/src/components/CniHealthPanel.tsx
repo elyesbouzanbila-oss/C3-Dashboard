@@ -3,6 +3,7 @@ import type { CalicoNodeStatus } from '../types'
 import { DataSourceBadge } from './DataSourceBadge'
 import { EmptyState } from './EmptyState'
 import { Icon } from './Icon'
+import { DonutChart } from './DonutChart'
 
 function formatUptime(seconds: number | null | undefined): string {
   if (seconds == null || seconds < 0) return '-'
@@ -20,39 +21,6 @@ function getHealthColor(ready: boolean): string {
 
 function getHealthLabel(ready: boolean): string {
   return ready ? 'Healthy' : 'Down'
-}
-
-/** Simple donut chart SVG. */
-function DonutChart({
-  pct,
-  size = 48,
-  strokeWidth = 4,
-  color,
-  bgColor = 'rgba(255,255,255,0.06)',
-}: {
-  pct: number
-  size?: number
-  strokeWidth?: number
-  color: string
-  bgColor?: string
-}) {
-  const r = (size - strokeWidth) / 2
-  const circ = 2 * Math.PI * r
-  const dash = (pct / 100) * circ
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="donut-chart" aria-hidden="true">
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={bgColor} strokeWidth={strokeWidth} />
-      <circle
-        cx={size / 2} cy={size / 2} r={r}
-        fill="none" stroke={color} strokeWidth={strokeWidth}
-        strokeLinecap="round"
-        strokeDasharray={circ}
-        strokeDashoffset={circ - dash}
-        transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        style={{ transition: 'stroke-dashoffset 1s ease, stroke 0.4s ease' }}
-      />
-    </svg>
-  )
 }
 
 export function CniHealthPanel() {
@@ -105,7 +73,7 @@ export function CniHealthPanel() {
           <div className="dashboard-compbar-actions">
             {nodes.length > 0 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <DonutChart pct={totalPct} size={28} strokeWidth={3} color="var(--success)" />
+                <DonutChart percentage={totalPct} size={28} strokeWidth={3} color="var(--success)" showLabel={false} glow />
                 <span className="dashboard-last-updated" style={{ fontSize: 11 }}>
                   {totalPct.toFixed(0)}% healthy
                 </span>

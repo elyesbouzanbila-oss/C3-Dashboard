@@ -3,6 +3,7 @@ import { useDashboard } from '../context/DashboardContext'
 import { DataSourceBadge } from './DataSourceBadge'
 import { EmptyState } from './EmptyState'
 import { Icon } from './Icon'
+import { DonutChart } from './DonutChart'
 
 function getUtilColor(pct: number): string {
   if (pct >= 90) return 'var(--danger)'
@@ -34,46 +35,6 @@ function parseCidr(cidr: string): { prefix: number; bits: number } | null {
   const isIpv6 = parts[0].includes(':')
   const totalBits = isIpv6 ? 128 : 32
   return { prefix: bits, bits: totalBits - bits }
-}
-
-/** Simple donut chart SVG (reused from DashboardPanel pattern). */
-function DonutChart({
-  pct,
-  size = 64,
-  strokeWidth = 6,
-  color,
-}: {
-  pct: number
-  size?: number
-  strokeWidth?: number
-  color: string
-}) {
-  const r = (size - strokeWidth) / 2
-  const circ = 2 * Math.PI * r
-  const dash = (pct / 100) * circ
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="donut-chart" aria-hidden="true">
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={strokeWidth} />
-      <circle
-        cx={size / 2} cy={size / 2} r={r}
-        fill="none" stroke={color} strokeWidth={strokeWidth}
-        strokeLinecap="round"
-        strokeDasharray={circ}
-        strokeDashoffset={circ - dash}
-        transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        style={{ transition: 'stroke-dashoffset 1s ease, stroke 0.4s ease' }}
-      />
-      <text
-        x={size / 2} y={size / 2}
-        textAnchor="middle" dominantBaseline="central"
-        fill="currentColor" fontSize={size * 0.22}
-        fontWeight={700}
-        style={{ fontVariantNumeric: 'tabular-nums' }}
-      >
-        {pct.toFixed(0)}%
-      </text>
-    </svg>
-  )
 }
 
 /** Small colored utilization bar. */
@@ -123,7 +84,7 @@ export function IpamPanel() {
           <div key={stat.label} className="pod-metrics-cluster-stat stagger-item" style={{ position: 'relative', overflow: 'hidden' }}>
             {stat.donut ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                <DonutChart pct={overallPct} size={56} strokeWidth={5} color={stat.color} />
+                <DonutChart percentage={overallPct} size={56} strokeWidth={5} color={stat.color} showLabel={false} glow />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <span className="cluster-stat-value" style={{ color: stat.color, fontSize: 18 }}>{stat.value}</span>
                   <span className="cluster-stat-label">{stat.label}</span>
@@ -180,7 +141,7 @@ export function IpamPanel() {
                   {/* Main content: utilization bar + donut */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 8 }}>
                     {/* Donut (compact) */}
-                    <DonutChart pct={b.utilization_pct} size={48} strokeWidth={4} color={color} />
+                    <DonutChart percentage={b.utilization_pct} size={48} strokeWidth={4} color={color} showLabel={false} glow />
                     {/* Bars & stats */}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       {/* Progress bar */}

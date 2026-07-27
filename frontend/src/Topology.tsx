@@ -281,10 +281,11 @@ export function Topology({ nodes, edges }: TopologyProps) {
           selector: 'node[type="clusternode"][role="master"][ready="true"]',
           style: {
             'background-color': COLORS.masterBg,
-            'border-color': COLORS.masterBorder,
+            'background-blacken': 0.1,
+            'border-color': COLORS.master,
             'border-width': 2,
-            'border-style': 'dashed',
-            'border-opacity': 0.8,
+            'border-style': 'solid',
+            'border-opacity': 0.6,
             'label': (ele: cytoscape.NodeSingular) => {
               const name = ele.data('label') || ''
               const ip = ele.data('ip') || ''
@@ -303,6 +304,11 @@ export function Topology({ nodes, edges }: TopologyProps) {
             'height': 'data(height)',
             'z-index': 1,
             'z-compound-depth': 'bottom',
+            'shadow-blur': 12,
+            'shadow-color': 'rgba(236, 72, 153, 0.15)',
+            'shadow-offset-x': 0,
+            'shadow-offset-y': 4,
+            'shadow-opacity': 0.5,
           } as EleStyle,
         },
         {
@@ -337,10 +343,11 @@ export function Topology({ nodes, edges }: TopologyProps) {
           selector: 'node[type="clusternode"][role="worker"][ready="true"]',
           style: {
             'background-color': COLORS.workerBg,
-            'border-color': COLORS.workerBorder,
+            'background-blacken': 0.08,
+            'border-color': COLORS.worker,
             'border-width': 2,
-            'border-style': 'dashed',
-            'border-opacity': 0.7,
+            'border-style': 'solid',
+            'border-opacity': 0.5,
             'label': (ele: cytoscape.NodeSingular) => {
               const name = ele.data('label') || ''
               const ip = ele.data('ip') || ''
@@ -359,6 +366,11 @@ export function Topology({ nodes, edges }: TopologyProps) {
             'height': 'data(height)',
             'z-index': 1,
             'z-compound-depth': 'bottom',
+            'shadow-blur': 12,
+            'shadow-color': 'rgba(59, 130, 246, 0.12)',
+            'shadow-offset-x': 0,
+            'shadow-offset-y': 4,
+            'shadow-opacity': 0.5,
           } as EleStyle,
         },
         {
@@ -417,14 +429,19 @@ export function Topology({ nodes, edges }: TopologyProps) {
             'text-wrap': 'wrap',
             'text-max-width': '80px',
             'background-color': (ele: cytoscape.NodeSingular) => getNamespaceColor(ele.data('namespace')),
-            'border-width': 1.5,
-            'border-color': 'rgba(255, 255, 255, 0.3)',
-            'border-opacity': 0.5,
+            'border-width': 2,
+            'border-color': 'rgba(255, 255, 255, 0.4)',
+            'border-opacity': 0.6,
             'shape': 'ellipse',
             'width': '72px',
             'height': '50px',
             'min-zoomed-font-size': 6,
             'z-index': 20,
+            'shadow-blur': 8,
+            'shadow-color': (ele: cytoscape.NodeSingular) => getNamespaceColor(ele.data('namespace')),
+            'shadow-offset-x': 0,
+            'shadow-offset-y': 2,
+            'shadow-opacity': 0.4,
           } as EleStyle,
         },
         {
@@ -493,6 +510,38 @@ export function Topology({ nodes, edges }: TopologyProps) {
             'target-arrow-shape': 'triangle',
             'curve-style': 'bezier',
             'opacity': 0.5,
+            'transition-property': 'opacity, width, line-color',
+            'transition-duration': '0.3s',
+          },
+        },
+        // BGP edges - distinct color
+        {
+          selector: 'edge[label="BGP"]',
+          style: {
+            'width': 2.5,
+            'line-color': 'rgba(236, 72, 153, 0.5)',
+            'target-arrow-color': 'rgba(236, 72, 153, 0.5)',
+            'line-style': 'dashed',
+            'opacity': 0.6,
+            'target-arrow-shape': 'none',
+            'curve-style': 'bezier',
+            'transition-property': 'opacity, width, line-color',
+            'transition-duration': '0.3s',
+          },
+        },
+        // Overlay edges - teal with dash pattern
+        {
+          selector: 'edge[label="Overlay"]',
+          style: {
+            'width': 2,
+            'line-color': 'rgba(6, 182, 212, 0.5)',
+            'target-arrow-color': 'rgba(6, 182, 212, 0.5)',
+            'line-style': 'dotted',
+            'opacity': 0.55,
+            'target-arrow-shape': 'none',
+            'curve-style': 'bezier',
+            'transition-property': 'opacity, width, line-color',
+            'transition-duration': '0.3s',
           },
         },
         {
@@ -500,8 +549,40 @@ export function Topology({ nodes, edges }: TopologyProps) {
           style: {
             'line-color': '#3B82F6',
             'target-arrow-color': '#3B82F6',
+            'width': 3,
+            'opacity': 1,
+            'line-style': 'solid',
+          },
+        },
+        // Pod-to-service edges - warmer color
+        {
+          selector: 'edge:not([label])',
+          style: {
+            'line-color': 'rgba(251, 191, 36, 0.3)',
+            'target-arrow-color': 'rgba(251, 191, 36, 0.3)',
+            'width': 1.5,
+            'opacity': 0.45,
+            'curve-style': 'bezier',
+            'target-arrow-shape': 'triangle',
+            'transition-property': 'opacity, width, line-color',
+            'transition-duration': '0.3s',
+          },
+        },
+        {
+          selector: 'edge:not([label]):selected, edge:not([label]):active',
+          style: {
+            'line-color': '#FCD34D',
+            'target-arrow-color': '#FCD34D',
             'width': 2.5,
             'opacity': 1,
+          },
+        },
+        // Hover glow for all edges
+        {
+          selector: 'edge:hover',
+          style: {
+            'width': 3,
+            'opacity': 0.9,
           },
         },
       ],
