@@ -1,5 +1,15 @@
 """Shared mock cluster data for all routers — single source of truth."""
 
+MOCK_NAMESPACES = [
+    {"name": "default", "status": "Active", "labels": {"kubernetes.io/metadata.name": "default"}},
+    {"name": "kube-system", "status": "Active", "labels": {"kubernetes.io/metadata.name": "kube-system"}},
+    {"name": "kube-public", "status": "Active", "labels": {"kubernetes.io/metadata.name": "kube-public"}},
+    {"name": "kube-node-lease", "status": "Active", "labels": {"kubernetes.io/metadata.name": "kube-node-lease"}},
+    {"name": "production", "status": "Active", "labels": {"kubernetes.io/metadata.name": "production"}},
+    {"name": "monitoring", "status": "Active", "labels": {"kubernetes.io/metadata.name": "monitoring"}},
+]
+
+
 MOCK_NODES = [
     {
         "name": "master-1",

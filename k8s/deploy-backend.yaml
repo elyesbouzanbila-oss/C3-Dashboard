@@ -55,6 +55,17 @@ spec:
                   key: redis-password
             - name: PROMETHEUS_URL
               value: "http://monitor-kube-prometheus-st-prometheus.monitoring.svc.cluster.local:9090"
+            - name: AI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: groq-api-key
+                  key: api-key
+            - name: AI_BASE_URL
+              value: "https://api.groq.com/openai/v1"
+            - name: AI_MODEL
+              value: "llama-3.3-70b-versatile"
+            - name: AI_ENABLED
+              value: "true"
           resources:
             requests:
               memory: "128Mi"
