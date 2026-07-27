@@ -1,26 +1,25 @@
 """
-Service layer for cluster configuration operations — CRUD on Calico CRDs
-via the Kubernetes API.
+Service layer for cluster management — full CRUD on all major K8s resources
+plus Calico CRDs via the Kubernetes API.
 """
 
 import logging
+from datetime import datetime
 from typing import Any, Dict, Optional
 from kubernetes_asyncio import client as k8s_client
 
 logger = logging.getLogger(__name__)
 
-# Calico CRD API group and version
 CALICO_GROUP = "crd.projectcalico.org"
 CALICO_VERSION = "v1"
 
 
-# ─── IP Pool CRUD ───────────────────────────────────────────────────
-
+# ═══════════════════════════════════════════════════════════════════
+#  CALICO CRD OPERATIONS
+# ═══════════════════════════════════════════════════════════════════
 
 async def create_ip_pool(api_client, pool_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Create a new Calico IPPool CRD."""
     custom_api = k8s_client.CustomObjectsApi(api_client)
-
     body = {
         "apiVersion": f"{CALICO_GROUP}/{CALICO_VERSION}",
         "kind": "IPPool",
@@ -34,143 +33,212 @@ async def create_ip_pool(api_client, pool_data: Dict[str, Any]) -> Dict[str, Any
             "nodeSelector": pool_data.get("node_selector", "all()"),
         },
     }
-
     result = await custom_api.create_cluster_custom_object(
-        group=CALICO_GROUP,
-        version=CALICO_VERSION,
-        plural="ippools",
-        body=body,
+        group=CALICO_GROUP, version=CALICO_VERSION, plural="ippools", body=body
     )
-    logger.info(f"Created IP pool {pool_data['name']} ({pool_data['cidr']})")
+    logger.info(f"Created IP pool {pool_data['name']}")
     return result
 
 
-async def update_ip_pool(
-    api_client, name: str, pool_data: Dict[str, Any]
-) -> Dict[str, Any]:
-    """Update an existing Calico IPPool CRD."""
+async def update_ip_pool(api_client, name: str, pool_data: Dict[str, Any]) -> Dict[str, Any]:
     custom_api = k8s_client.CustomObjectsApi(api_client)
-
     current = await custom_api.get_cluster_custom_object(
         group=CALICO_GROUP, version=CALICO_VERSION, plural="ippools", name=name
     )
-
     spec = current.get("spec", {})
-    if "cidr" in pool_data:
-        spec["cidr"] = pool_data["cidr"]
-    if "nat_outgoing" in pool_data:
-        spec["natOutgoing"] = pool_data["nat_outgoing"]
-    if "disabled" in pool_data:
-        spec["disabled"] = pool_data["disabled"]
+    if "nat_outgoing" in pool_data: spec["natOutgoing"] = pool_data["nat_outgoing"]
+    if "disabled" in pool_data: spec["disabled"] = pool_data["disabled"]
     if "mode" in pool_data:
         spec["ipipMode"] = _resolve_encap_mode(pool_data["mode"], "ipip")
         spec["vxlanMode"] = _resolve_encap_mode(pool_data["mode"], "vxlan")
-    if "node_selector" in pool_data:
-        spec["nodeSelector"] = pool_data["node_selector"]
-
-    body = {"spec": spec}
-
-    result = await custom_api.patch_cluster_custom_object(
-        group=CALICO_GROUP,
-        version=CALICO_VERSION,
-        plural="ippools",
-        name=name,
-        body=body,
+    if "node_selector" in pool_data: spec["nodeSelector"] = pool_data["node_selector"]
+    return await custom_api.patch_cluster_custom_object(
+        group=CALICO_GROUP, version=CALICO_VERSION, plural="ippools", name=name, body={"spec": spec}
     )
-    logger.info(f"Updated IP pool {name}")
-    return result
 
 
 async def delete_ip_pool(api_client, name: str) -> None:
-    """Delete a Calico IPPool CRD."""
     custom_api = k8s_client.CustomObjectsApi(api_client)
     await custom_api.delete_cluster_custom_object(
-        group=CALICO_GROUP,
-        version=CALICO_VERSION,
-        plural="ippools",
-        name=name,
+        group=CALICO_GROUP, version=CALICO_VERSION, plural="ippools", name=name
     )
     logger.info(f"Deleted IP pool {name}")
 
 
-def _resolve_encap_mode(mode: str, target: str) -> str:
-    """Resolve a user-friendly mode string into ipipMode / vxlanMode values."""
-    if mode == "ipip":
-        return "Always" if target == "ipip" else "Never"
-    if mode == "vxlan":
-        return "Never" if target == "ipip" else "Always"
-    return "Never"
-
-
-# ─── BGP Peer CRUD ──────────────────────────────────────────────────
-
-
 async def create_bgp_peer(api_client, peer_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Create a new Calico BGPPeer CRD."""
     custom_api = k8s_client.CustomObjectsApi(api_client)
-
     spec: Dict[str, Any] = {
         "peerIP": peer_data["peer_ip"],
         "asNumber": peer_data.get("peer_as_number", 64512),
     }
-    if peer_data.get("node_as_number") is not None:
-        spec["nodeASNumber"] = peer_data["node_as_number"]
-    if peer_data.get("node"):
-        spec["node"] = peer_data["node"]
-
+    if peer_data.get("node_as_number") is not None: spec["nodeASNumber"] = peer_data["node_as_number"]
+    if peer_data.get("node"): spec["node"] = peer_data["node"]
     body = {
         "apiVersion": f"{CALICO_GROUP}/{CALICO_VERSION}",
         "kind": "BGPPeer",
         "metadata": {"name": peer_data["name"]},
         "spec": spec,
     }
-
-    result = await custom_api.create_cluster_custom_object(
-        group=CALICO_GROUP,
-        version=CALICO_VERSION,
-        plural="bgppeers",
-        body=body,
+    return await custom_api.create_cluster_custom_object(
+        group=CALICO_GROUP, version=CALICO_VERSION, plural="bgppeers", body=body
     )
-    logger.info(f"Created BGP peer {peer_data['name']} -> {peer_data['peer_ip']}")
-    return result
 
 
-async def update_bgp_peer(
-    api_client, name: str, peer_data: Dict[str, Any]
-) -> Dict[str, Any]:
-    """Update an existing Calico BGPPeer CRD."""
+async def update_bgp_peer(api_client, name: str, peer_data: Dict[str, Any]) -> Dict[str, Any]:
     custom_api = k8s_client.CustomObjectsApi(api_client)
-
     spec: Dict[str, Any] = {}
-    if "peer_ip" in peer_data:
-        spec["peerIP"] = peer_data["peer_ip"]
-    if "peer_as_number" in peer_data:
-        spec["asNumber"] = peer_data["peer_as_number"]
-    if "node_as_number" in peer_data:
-        spec["nodeASNumber"] = peer_data["node_as_number"]
-    if "node" in peer_data:
-        spec["node"] = peer_data["node"]
-
-    body = {"spec": spec}
-
-    result = await custom_api.patch_cluster_custom_object(
-        group=CALICO_GROUP,
-        version=CALICO_VERSION,
-        plural="bgppeers",
-        name=name,
-        body=body,
+    if "peer_ip" in peer_data: spec["peerIP"] = peer_data["peer_ip"]
+    if "peer_as_number" in peer_data: spec["asNumber"] = peer_data["peer_as_number"]
+    if "node_as_number" in peer_data: spec["nodeASNumber"] = peer_data["node_as_number"]
+    if "node" in peer_data: spec["node"] = peer_data["node"]
+    return await custom_api.patch_cluster_custom_object(
+        group=CALICO_GROUP, version=CALICO_VERSION, plural="bgppeers", name=name, body={"spec": spec}
     )
-    logger.info(f"Updated BGP peer {name}")
-    return result
 
 
 async def delete_bgp_peer(api_client, name: str) -> None:
-    """Delete a Calico BGPPeer CRD."""
     custom_api = k8s_client.CustomObjectsApi(api_client)
     await custom_api.delete_cluster_custom_object(
-        group=CALICO_GROUP,
-        version=CALICO_VERSION,
-        plural="bgppeers",
-        name=name,
+        group=CALICO_GROUP, version=CALICO_VERSION, plural="bgppeers", name=name
     )
     logger.info(f"Deleted BGP peer {name}")
+
+
+def _resolve_encap_mode(mode: str, target: str) -> str:
+    if mode == "ipip": return "Always" if target == "ipip" else "Never"
+    if mode == "vxlan": return "Never" if target == "ipip" else "Always"
+    return "Never"
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  CORE K8s RESOURCE OPERATIONS
+# ═══════════════════════════════════════════════════════════════════
+
+# ─── Namespaces ─────────────────────────────────────────────────
+
+
+async def create_namespace(api_client, name: str, labels: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    v1 = k8s_client.CoreV1Api(api_client)
+    meta: Dict[str, Any] = {"name": name}
+    if labels: meta["labels"] = labels
+    body = {"apiVersion": "v1", "kind": "Namespace", "metadata": meta}
+    result = await v1.create_namespace(body=body)
+    logger.info(f"Created namespace {name}")
+    return result
+
+
+async def delete_namespace(api_client, name: str) -> None:
+    v1 = k8s_client.CoreV1Api(api_client)
+    await v1.delete_namespace(name=name)
+    logger.info(f"Deleted namespace {name}")
+
+
+# ─── Services ────────────────────────────────────────────────────
+
+
+async def create_service(api_client, svc_data: Dict[str, Any]) -> Dict[str, Any]:
+    v1 = k8s_client.CoreV1Api(api_client)
+    body = {
+        "apiVersion": "v1",
+        "kind": "Service",
+        "metadata": {"name": svc_data["name"], "namespace": svc_data["namespace"]},
+        "spec": {
+            "selector": svc_data.get("selector", {}),
+            "ports": svc_data.get("ports", [{"port": 80, "protocol": "TCP"}]),
+        },
+    }
+    if svc_data.get("type"): body["spec"]["type"] = svc_data["type"]
+    if svc_data.get("cluster_ip"): body["spec"]["clusterIP"] = svc_data["cluster_ip"]
+    result = await v1.create_namespaced_service(namespace=svc_data["namespace"], body=body)
+    logger.info(f"Created service {svc_data['namespace']}/{svc_data['name']}")
+    return result
+
+
+async def update_service(api_client, namespace: str, name: str, svc_data: Dict[str, Any]) -> Dict[str, Any]:
+    v1 = k8s_client.CoreV1Api(api_client)
+    current = await v1.read_namespaced_service(name=name, namespace=namespace)
+    spec = current.spec
+    # Build patch
+    patch: Dict[str, Any] = {"spec": {}}
+    if "selector" in svc_data: patch["spec"]["selector"] = svc_data["selector"]
+    if "ports" in svc_data: patch["spec"]["ports"] = svc_data["ports"]
+    if "type" in svc_data: patch["spec"]["type"] = svc_data["type"]
+    return await v1.patch_namespaced_service(name=name, namespace=namespace, body=patch)
+
+
+async def delete_service(api_client, namespace: str, name: str) -> None:
+    v1 = k8s_client.CoreV1Api(api_client)
+    await v1.delete_namespaced_service(name=name, namespace=namespace)
+    logger.info(f"Deleted service {namespace}/{name}")
+
+
+# ─── ConfigMaps ──────────────────────────────────────────────────
+
+
+async def create_configmap(api_client, cm_data: Dict[str, Any]) -> Dict[str, Any]:
+    v1 = k8s_client.CoreV1Api(api_client)
+    body = {
+        "apiVersion": "v1",
+        "kind": "ConfigMap",
+        "metadata": {"name": cm_data["name"], "namespace": cm_data["namespace"]},
+        "data": cm_data.get("data", {}),
+    }
+    return await v1.create_namespaced_config_map(namespace=cm_data["namespace"], body=body)
+
+
+async def update_configmap(api_client, namespace: str, name: str, cm_data: Dict[str, Any]) -> Dict[str, Any]:
+    v1 = k8s_client.CoreV1Api(api_client)
+    body = {"data": cm_data.get("data", {})}
+    return await v1.patch_namespaced_config_map(name=name, namespace=namespace, body=body)
+
+
+async def delete_configmap(api_client, namespace: str, name: str) -> None:
+    v1 = k8s_client.CoreV1Api(api_client)
+    await v1.delete_namespaced_config_map(name=name, namespace=namespace)
+    logger.info(f"Deleted ConfigMap {namespace}/{name}")
+
+
+# ─── Secrets ─────────────────────────────────────────────────────
+
+
+async def create_secret(api_client, secret_data: Dict[str, Any]) -> Dict[str, Any]:
+    v1 = k8s_client.CoreV1Api(api_client)
+    body = {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {"name": secret_data["name"], "namespace": secret_data["namespace"]},
+        "type": secret_data.get("type", "Opaque"),
+        "data": secret_data.get("data", {}),
+    }
+    return await v1.create_namespaced_secret(namespace=secret_data["namespace"], body=body)
+
+
+async def delete_secret(api_client, namespace: str, name: str) -> None:
+    v1 = k8s_client.CoreV1Api(api_client)
+    await v1.delete_namespaced_secret(name=name, namespace=namespace)
+    logger.info(f"Deleted Secret {namespace}/{name}")
+
+
+# ─── Deployments ─────────────────────────────────────────────────
+
+
+async def scale_deployment(api_client, namespace: str, name: str, replicas: int) -> Dict[str, Any]:
+    apps_v1 = k8s_client.AppsV1Api(api_client)
+    body = {"spec": {"replicas": replicas}}
+    return await apps_v1.patch_namespaced_deployment_scale(name=name, namespace=namespace, body=body)
+
+
+async def restart_deployment(api_client, namespace: str, name: str) -> Dict[str, Any]:
+    apps_v1 = k8s_client.AppsV1Api(api_client)
+    # Trigger a rolling restart by patching annotations
+    body = {"spec": {"template": {"metadata": {"annotations": {"kubectl.kubernetes.io/restartedAt": datetime.utcnow().isoformat() + "Z"}}}}}
+    return await apps_v1.patch_namespaced_deployment(name=name, namespace=namespace, body=body)
+
+
+# ─── Nodes ───────────────────────────────────────────────────────
+
+
+async def cordon_node(api_client, name: str, cordon: bool) -> Dict[str, Any]:
+    v1 = k8s_client.CoreV1Api(api_client)
+    body = {"spec": {"unschedulable": cordon}}
+    return await v1.patch_node(name=name, body=body)

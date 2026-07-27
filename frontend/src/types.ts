@@ -239,7 +239,52 @@ export interface ApiResponse<T> {
   data: T
 }
 
-// ─── Configuration Types ──────────────────────────────────────────
+// ─── Cluster Management Types ─────────────────────────────────────
+
+export interface K8sNamespace {
+  name: string
+  status?: string
+  labels?: Record<string, string>
+}
+
+export interface K8sService {
+  name: string
+  namespace: string
+  cluster_ip: string
+  type: string
+  ports: string
+}
+
+export interface K8sConfigMap {
+  name: string
+  namespace: string
+  keys: string[]
+}
+
+export interface K8sSecret {
+  name: string
+  namespace: string
+  type: string
+  keys: string[]
+}
+
+export interface K8sDeployment {
+  name: string
+  namespace: string
+  replicas: number
+  ready_replicas: number
+  image: string
+}
+
+export interface K8sNode {
+  name: string
+  role: string
+  ip: string
+  ready: boolean
+  unschedulable: boolean
+  kubelet_version: string
+  os_image: string
+}
 
 export interface ConfigSettings {
   k8s_mode: string
@@ -248,6 +293,7 @@ export interface ConfigSettings {
   ai_model: string
   frontend_url: string
   has_api_key: boolean
+  has_super_user_password: boolean
   has_redis_password: boolean
   has_falco_webhook_secret: boolean
 }

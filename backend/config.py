@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     API_KEY: str = ""
     FRONTEND_URL: str = "http://localhost:5173"
 
+    # Super user password for elevated cluster management operations.
+    # Set this in production to require authentication for all write operations.
+    SUPER_USER_PASSWORD: str = ""
+
     # Separate secret for the Falco webhook (not exposed to browsers)
     FALCO_WEBHOOK_SECRET: Optional[str] = None
 

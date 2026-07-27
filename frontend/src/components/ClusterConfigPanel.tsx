@@ -1,650 +1,680 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useDashboard } from '../context/DashboardContext'
 import { Icon } from './Icon'
-import { DonutChart } from './DonutChart'
 import { EmptyState } from './EmptyState'
-import { getNsColor } from '../utils'
-import type { IPPool, BGPPeer, IPPoolFormData, BGPPeerFormData, ConfigSettings } from '../types'
-import { config } from '../config'
+import { SuperUserModal } from './SuperUserModal'
+import type {
+  IPPool, BGPPeer, K8sNamespace, K8sService, K8sConfigMap,
+  K8sSecret, K8sDeployment, K8sNode, ConfigSettings,
+} from '../types'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || ''
 
-/** Helper: build headers with API key for write operations */
-function authHeaders(): Record<string, string> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  const key = config.apiKey
-  if (key) headers['X-API-Key'] = key
-  return headers
+// ═══════════════════════════════════════════════════════════════════
+//  Super User auth helpers
+// ═══════════════════════════════════════════════════════════════════
+
+let _superUserPassword = ''
+let _superUserSession = false
+
+function getAuthHeaders(): Record<string, string> {
+  const h: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (_superUserPassword) h['X-Super-User-Password'] = _superUserPassword
+  return h
 }
 
-/** Get a color for an IP pool based on mode */
-function getPoolModeColor(mode: string): string {
-  switch (mode) {
-    case 'vxlan': return 'var(--info)'
-    case 'ipip': return 'var(--warning)'
-    case 'none': return 'var(--success)'
-    default: return 'var(--text-tertiary)'
-  }
+// ═══════════════════════════════════════════════════════════════════
+//  Fetch helpers
+// ═══════════════════════════════════════════════════════════════════
+
+async function listResource<T>(path: string): Promise<T[]> {
+  try {
+    const res = await fetch(`${API_BASE_URL}${path}`)
+    if (!res.ok) return []
+    const d = await res.json()
+    return d.data || []
+  } catch { return [] }
 }
+
+async function deleteResource(path: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}${path}`, { method: 'DELETE', headers: getAuthHeaders() })
+    if (!res.ok) {
+      const txt = await res.text()
+      return txt || `HTTP ${res.status}`
+    }
+    return null
+  } catch (e) { return e instanceof Error ? e.message : 'Network error' }
+}
+
+async function writeResource(path: string, method: string, body: unknown): Promise<string | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}${path}`, {
+      method, headers: getAuthHeaders(), body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const txt = await res.text()
+      return txt || `HTTP ${res.status}`
+    }
+    return null
+  } catch (e) { return e instanceof Error ? e.message : 'Network error' }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Color helpers
+// ═══════════════════════════════════════════════════════════════════
+
+const MODE_COLORS: Record<string, string> = {
+  vxlan: 'var(--info)', ipip: 'var(--warning)', none: 'var(--success)',
+}
+
+interface SectionProps {
+  title: string
+  icon: string
+  iconColor: string
+  expanded: boolean
+  onToggle: () => void
+  addLabel?: string
+  onAdd?: () => void
+  children: React.ReactNode
+}
+
+function ConfigSection({ title, icon, iconColor, expanded, onToggle, addLabel, onAdd, children }: SectionProps) {
+  return (
+    <div className="config-section-card">
+      <button className="dashboard-card-header-btn config-section-toggle" onClick={onToggle} aria-expanded={expanded}>
+        <div className="dashboard-card-header-left">
+          <Icon name={icon as any} size={16} style={{ color: iconColor }} />
+          <span>{title}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {addLabel && expanded && (
+            <button className="refresh-btn" onClick={e => { e.stopPropagation(); onAdd?.() }} style={{ padding: '4px 10px', fontSize: 11, zIndex: 2, position: 'relative' }}>
+              <Icon name="plus" size={12} />
+              <span>{addLabel}</span>
+            </button>
+          )}
+          <span className="dashboard-card-expand-icon" style={{ transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s ease' }}>
+            <Icon name="chevron-right" size={14} />
+          </span>
+        </div>
+      </button>
+      {expanded && <div className="config-section-body">{children}</div>}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Main Component
+// ═══════════════════════════════════════════════════════════════════
 
 export function ClusterConfigPanel() {
   const { ipPools, bgpPeers, ipPoolsStatus } = useDashboard()
 
-  // ── IP Pool state ──────────────────────────────────────────
-  const [poolFormOpen, setPoolFormOpen] = useState(false)
-  const [editingPool, setEditingPool] = useState<string | null>(null)
-  const [poolForm, setPoolForm] = useState<IPPoolFormData>({
-    name: '',
-    cidr: '',
-    nat_outgoing: true,
-    disabled: false,
-    mode: 'vxlan',
-    node_selector: 'all()',
-  })
-  const [poolSaving, setPoolSaving] = useState(false)
-  const [poolError, setPoolError] = useState<string | null>(null)
+  // ── Super user state ──────────────────────────────────────────
+  const [showAuth, setShowAuth] = useState(false)
+  const [superUserActive, setSuperUserActive] = useState(false)
+  const authTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // ── BGP Peer state ─────────────────────────────────────────
-  const [peerFormOpen, setPeerFormOpen] = useState(false)
-  const [editingPeer, setEditingPeer] = useState<string | null>(null)
-  const [peerForm, setPeerForm] = useState<BGPPeerFormData>({
-    name: '',
-    peer_ip: '',
-    peer_as_number: 64512,
-    node_as_number: null,
-    node: null,
-  })
-  const [peerSaving, setPeerSaving] = useState(false)
-  const [peerError, setPeerError] = useState<string | null>(null)
+  const superUserSessionDuration = 15 * 60 * 1000 // 15 minutes
 
-  // ── Settings state ─────────────────────────────────────────
-  const [settings, setSettings] = useState<ConfigSettings | null>(null)
-  const [settingsLoading, setSettingsLoading] = useState(false)
+  const handleAuthenticated = useCallback((password: string) => {
+    _superUserPassword = password
+    _superUserSession = true
+    setSuperUserActive(true)
+    setShowAuth(false)
 
-  // Fetch settings on mount
+    if (authTimerRef.current) clearTimeout(authTimerRef.current)
+    authTimerRef.current = setTimeout(() => {
+      _superUserPassword = ''
+      _superUserSession = false
+      setSuperUserActive(false)
+    }, superUserSessionDuration)
+  }, [])
+
+  const handleAuthCancel = useCallback(() => {
+    setShowAuth(false)
+  }, [])
+
+  const requireAuth = useCallback((action: () => void) => {
+    if (_superUserSession && _superUserPassword) {
+      action()
+    } else {
+      // Store the action to run after auth
+      setPendingAction(() => action)
+      setShowAuth(true)
+    }
+  }, [])
+
+  // This ref holds the pending action to run after auth
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
+
+  // Run pending action after auth succeeds
   useEffect(() => {
-    setSettingsLoading(true)
-    fetch(`${API_BASE_URL}/api/config/settings`)
-      .then(r => r.json())
-      .then(d => setSettings(d.data || null))
-      .catch(() => {})
-      .finally(() => setSettingsLoading(false))
-  }, [])
-
-  // ── IP Pool CRUD ───────────────────────────────────────────
-  const openPoolForm = useCallback((pool?: IPPool) => {
-    if (pool) {
-      setEditingPool(pool.name)
-      setPoolForm({
-        name: pool.name,
-        cidr: pool.cidr,
-        nat_outgoing: pool.nat_outgoing,
-        disabled: pool.disabled,
-        mode: (pool.mode as 'ipip' | 'vxlan' | 'none') || 'vxlan',
-        node_selector: pool.node_selector || 'all()',
-      })
-    } else {
-      setEditingPool(null)
-      setPoolForm({ name: '', cidr: '', nat_outgoing: true, disabled: false, mode: 'vxlan', node_selector: 'all()' })
+    if (superUserActive && pendingAction) {
+      pendingAction()
+      setPendingAction(null)
     }
-    setPoolError(null)
-    setPoolFormOpen(true)
+  }, [superUserActive, pendingAction])
+
+  // Cleanup auth timer on unmount
+  useEffect(() => {
+    return () => { if (authTimerRef.current) clearTimeout(authTimerRef.current) }
   }, [])
 
-  const closePoolForm = useCallback(() => {
-    setPoolFormOpen(false)
-    setEditingPool(null)
-    setPoolError(null)
+  // ── Section expand state ──────────────────────────────────────
+  const [sections, setSections] = useState<Record<string, boolean>>({
+    ippools: true, bgppeers: true, namespaces: false,
+    services: false, configmaps: false, secrets: false,
+    deployments: false, nodes: false,
+  })
+  const toggleSection = useCallback((key: string) => {
+    setSections(s => ({ ...s, [key]: !s[key] }))
   }, [])
 
-  const savePool = useCallback(async () => {
-    setPoolSaving(true)
-    setPoolError(null)
-    try {
-      const endpoint = editingPool
-        ? `${API_BASE_URL}/api/config/ippools/${editingPool}`
-        : `${API_BASE_URL}/api/config/ippools`
-      const method = editingPool ? 'PUT' : 'POST'
+  // ── Resource data ─────────────────────────────────────────────
+  const [namespaces, setNamespaces] = useState<K8sNamespace[]>([])
+  const [services, setServices] = useState<K8sService[]>([])
+  const [configMaps, setConfigMaps] = useState<K8sConfigMap[]>([])
+  const [secrets, setSecrets] = useState<K8sSecret[]>([])
+  const [deployments, setDeployments] = useState<K8sDeployment[]>([])
+  const [k8sNodes, setK8sNodes] = useState<K8sNode[]>([])
+  const [settings, setSettings] = useState<ConfigSettings | null>(null)
+  const [loadingData, setLoadingData] = useState(false)
 
-      const body = editingPool
-        ? { mode: poolForm.mode, nat_outgoing: poolForm.nat_outgoing, disabled: poolForm.disabled, node_selector: poolForm.node_selector }
-        : poolForm
+  const loadAll = useCallback(async () => {
+    setLoadingData(true)
+    const data = await Promise.all([
+      listResource<K8sNamespace>('/api/config/namespaces'),
+      listResource<K8sService>('/api/config/services'),
+      listResource<K8sConfigMap>('/api/config/configmaps'),
+      listResource<K8sSecret>('/api/config/secrets'),
+      listResource<K8sDeployment>('/api/config/deployments'),
+      listResource<K8sNode>('/api/config/nodes'),
+      listResource<ConfigSettings>('/api/config/settings'),
+    ])
+    setNamespaces(data[0])
+    setServices(data[1])
+    setConfigMaps(data[2])
+    setSecrets(data[3])
+    setDeployments(data[4])
+    setK8sNodes(data[5])
+    if (data[6]?.length) setSettings(data[6] as unknown as ConfigSettings)
+    else {
+      try {
+        const r = await fetch(`${API_BASE_URL}/api/config/settings`)
+        const d = await r.json()
+        if (d.data) setSettings(d.data)
+      } catch {}
+    }
+    setLoadingData(false)
+  }, [])
 
-      const res = await fetch(endpoint, {
-        method,
-        headers: authHeaders(),
-        body: JSON.stringify(body),
-      })
-      if (!res.ok) {
-        const err = await res.text()
-        throw new Error(err || `HTTP ${res.status}`)
+  useEffect(() => { loadAll() }, [loadAll])
+
+  // ── Modal state ───────────────────────────────────────────────
+  const [modal, setModal] = useState<{ type: string; data?: any; editing?: boolean } | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [modalError, setModalError] = useState<string | null>(null)
+
+  const openModal = useCallback((type: string, data?: any) => {
+    setModal({ type, data, editing: !!data })
+    setModalError(null)
+  }, [])
+  const closeModal = useCallback(() => { setModal(null); setModalError(null) }, [])
+
+  // ── Write actions wrapped in auth ─────────────────────────────
+  const withAuth = useCallback((fn: () => Promise<string | null>, onSuccess: () => void) => {
+    if (!_superUserSession || !_superUserPassword) {
+      setPendingAction(() => () => withAuth(fn, onSuccess))
+      setShowAuth(true)
+      return
+    }
+    setSaving(true)
+    setModalError(null)
+    fn().then(err => {
+      if (err) setModalError(err)
+      else { closeModal(); loadAll() }
+    }).catch(e => setModalError(e.message || 'Error')).finally(() => setSaving(false))
+  }, [closeModal, loadAll])
+
+  // ── Namespace form state ──────────────────────────────────────
+  const [nsName, setNsName] = useState('')
+
+  const renderModal = () => {
+    if (!modal) return null
+    const { type, data, editing } = modal
+
+    const close = () => { closeModal(); if (type === 'namespace') setNsName('') }
+
+    const renderForm = () => {
+      switch (type) {
+        case 'namespace': return (
+          <div className="config-form-group">
+            <label className="config-form-label">Namespace Name</label>
+            <input className="config-form-input" value={nsName} onChange={e => setNsName(e.target.value)} placeholder="e.g. my-app" autoFocus />
+          </div>
+        )
+        default: return null
       }
-      closePoolForm()
-      window.location.reload()
-    } catch (err) {
-      setPoolError(err instanceof Error ? err.message : 'Failed to save IP pool')
-    } finally {
-      setPoolSaving(false)
     }
-  }, [editingPool, poolForm, closePoolForm])
 
-  const deletePool = useCallback(async (name: string) => {
-    if (!window.confirm(`Delete IP pool "${name}"? This may affect running workloads.`)) return
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/config/ippools/${name}`, {
-        method: 'DELETE',
-        headers: authHeaders(),
-      })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      window.location.reload()
-    } catch (err) {
-      alert(`Failed to delete: ${err instanceof Error ? err.message : 'Unknown'}`)
-    }
-  }, [])
-
-  // ── BGP Peer CRUD ──────────────────────────────────────────
-  const openPeerForm = useCallback((peer?: BGPPeer) => {
-    if (peer) {
-      setEditingPeer(peer.name)
-      setPeerForm({
-        name: peer.name,
-        peer_ip: peer.peer_ip || '',
-        peer_as_number: peer.peer_as_number || 64512,
-        node_as_number: peer.node_as_number || null,
-        node: peer.node || null,
-      })
-    } else {
-      setEditingPeer(null)
-      setPeerForm({ name: '', peer_ip: '', peer_as_number: 64512, node_as_number: null, node: null })
-    }
-    setPeerError(null)
-    setPeerFormOpen(true)
-  }, [])
-
-  const closePeerForm = useCallback(() => {
-    setPeerFormOpen(false)
-    setEditingPeer(null)
-    setPeerError(null)
-  }, [])
-
-  const savePeer = useCallback(async () => {
-    setPeerSaving(true)
-    setPeerError(null)
-    try {
-      const endpoint = editingPeer
-        ? `${API_BASE_URL}/api/config/bgppeers/${editingPeer}`
-        : `${API_BASE_URL}/api/config/bgppeers`
-      const method = editingPeer ? 'PUT' : 'POST'
-
-      const body = editingPeer
-        ? { peer_ip: peerForm.peer_ip, peer_as_number: peerForm.peer_as_number, node_as_number: peerForm.node_as_number, node: peerForm.node }
-        : peerForm
-
-      const res = await fetch(endpoint, {
-        method,
-        headers: authHeaders(),
-        body: JSON.stringify(body),
-      })
-      if (!res.ok) {
-        const err = await res.text()
-        throw new Error(err || `HTTP ${res.status}`)
+    const handleSave = () => {
+      let path = '', method = '', body: any = {}
+      switch (type) {
+        case 'namespace':
+          if (!nsName.trim()) { setModalError('Name is required'); return }
+          path = '/api/config/namespaces'; method = 'POST'; body = { name: nsName.trim() }
+          break
       }
-      closePeerForm()
-      window.location.reload()
-    } catch (err) {
-      setPeerError(err instanceof Error ? err.message : 'Failed to save BGP peer')
-    } finally {
-      setPeerSaving(false)
-    }
-  }, [editingPeer, peerForm, closePeerForm])
-
-  const deletePeer = useCallback(async (name: string) => {
-    if (!window.confirm(`Delete BGP peer "${name}"?`)) return
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/config/bgppeers/${name}`, {
-        method: 'DELETE',
-        headers: authHeaders(),
+      withAuth(() => writeResource(path, method, body), () => {
+        if (type === 'namespace') setNsName('')
       })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      window.location.reload()
-    } catch (err) {
-      alert(`Failed to delete: ${err instanceof Error ? err.message : 'Unknown'}`)
     }
-  }, [])
 
-  // ── Pool stats ─────────────────────────────────────────────
-  const enabledPools = ipPools.filter(p => !p.disabled)
-  const vxlanPools = ipPools.filter(p => p.mode === 'vxlan')
-  const ipipPools = ipPools.filter(p => p.mode === 'ipip')
+    const titles: Record<string, string> = {
+      namespace: 'Create Namespace',
+    }
+
+    return (
+      <div className="config-modal-overlay" onClick={close}>
+        <div className="config-modal" onClick={e => e.stopPropagation()}>
+          <div className="config-modal-header">
+            <h3>{titles[type] || 'Action'}</h3>
+            <button className="refresh-btn" onClick={close} style={{ padding: '4px 8px' }}><Icon name="x" size={16} /></button>
+          </div>
+          <div className="config-modal-body">
+            {renderForm()}
+            {modalError && <div className="config-form-error">{modalError}</div>}
+            <div className="config-modal-actions">
+              <button className="refresh-btn" onClick={close}>Cancel</button>
+              <button className="refresh-btn" onClick={handleSave} disabled={saving} style={{ backgroundColor: 'var(--primary)', color: '#fff', borderColor: 'var(--primary)' }}>
+                {saving ? 'Saving...' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  RENDER
+  // ═══════════════════════════════════════════════════════════════
 
   return (
     <div className="section config-section">
-      <h2>Cluster Configuration</h2>
+      <h2>Cluster Management</h2>
+
+      {/* ── Super User Auth Bar ── */}
+      <div className={`dashboard-compact-bar su-bar ${superUserActive ? 'su-authenticated' : ''}`}>
+        <div className="dashboard-mini-stat">
+          <span className="dashboard-mini-stat-icon" style={{ color: superUserActive ? 'var(--success)' : 'var(--text-tertiary)' }}>
+            <Icon name={superUserActive ? 'unlock' : 'lock'} size={16} />
+          </span>
+          <div className="dashboard-mini-stat-content">
+            <span className="dashboard-mini-stat-value" style={{ color: superUserActive ? 'var(--success)' : 'var(--text-tertiary)', fontSize: 12, fontWeight: 600 }}>
+              {superUserActive ? 'Super User Active' : 'Read Only'}
+            </span>
+            <span className="dashboard-mini-stat-label">
+              {superUserActive ? 'Write operations enabled' : 'Write operations require authentication'}
+            </span>
+          </div>
+        </div>
+        {!superUserActive && (
+          <div className="dashboard-compbar-actions">
+            <button className="refresh-btn" onClick={() => setShowAuth(true)} style={{ color: 'var(--warning)', borderColor: 'var(--warning)' }}>
+              <Icon name="unlock" size={14} />
+              <span>Unlock</span>
+            </button>
+          </div>
+        )}
+        {superUserActive && (
+          <div className="dashboard-compbar-actions">
+            <span className="dashboard-last-updated">
+              <Icon name="check" size={14} />
+              Session active
+            </span>
+            <button className="refresh-btn" onClick={() => {
+              _superUserPassword = ''; _superUserSession = false; setSuperUserActive(false)
+              if (authTimerRef.current) clearTimeout(authTimerRef.current)
+            }} style={{ color: 'var(--text-tertiary)' }}>
+              <Icon name="lock" size={14} />
+              <span>Lock</span>
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* ── Summary Stats ── */}
       <div className="dashboard-compact-bar stagger-item" style={{ animationDelay: '0s' }}>
         <div className="dashboard-mini-stat">
-          <span className="dashboard-mini-stat-icon" style={{ color: 'var(--primary)' }}>
-            <Icon name="hard-drive" size={16} />
-          </span>
+          <span className="dashboard-mini-stat-icon" style={{ color: 'var(--primary)' }}><Icon name="hard-drive" size={16} /></span>
           <div className="dashboard-mini-stat-content">
             <span className="dashboard-mini-stat-value" style={{ color: 'var(--primary)' }}>{ipPools.length}</span>
-            <span className="dashboard-mini-stat-label">IP Pool{ipPools.length !== 1 ? 's' : ''}</span>
+            <span className="dashboard-mini-stat-label">IP Pools</span>
           </div>
         </div>
         <div className="dashboard-mini-stat">
-          <span className="dashboard-mini-stat-icon" style={{ color: 'var(--success)' }}>
-            <Icon name="check" size={16} />
-          </span>
-          <div className="dashboard-mini-stat-content">
-            <span className="dashboard-mini-stat-value" style={{ color: 'var(--success)' }}>{enabledPools.length}</span>
-            <span className="dashboard-mini-stat-label">Active</span>
-          </div>
-        </div>
-        <div className="dashboard-mini-stat">
-          <span className="dashboard-mini-stat-icon" style={{ color: 'var(--info)' }}>
-            <Icon name="git-branch" size={16} />
-          </span>
+          <span className="dashboard-mini-stat-icon" style={{ color: 'var(--info)' }}><Icon name="git-branch" size={16} /></span>
           <div className="dashboard-mini-stat-content">
             <span className="dashboard-mini-stat-value" style={{ color: 'var(--info)' }}>{bgpPeers.length}</span>
-            <span className="dashboard-mini-stat-label">BGP Peer{bgpPeers.length !== 1 ? 's' : ''}</span>
+            <span className="dashboard-mini-stat-label">BGP Peers</span>
           </div>
         </div>
-        <div className="dashboard-compbar-actions">
-          <span className="dashboard-last-updated">
-            <Icon name="settings" size={14} />
-            Calico {ipPoolsStatus === 'live' ? 'connected' : ipPoolsStatus}
-          </span>
+        <div className="dashboard-mini-stat">
+          <span className="dashboard-mini-stat-icon" style={{ color: 'var(--success)' }}><Icon name="layout-dashboard" size={16} /></span>
+          <div className="dashboard-mini-stat-content">
+            <span className="dashboard-mini-stat-value" style={{ color: 'var(--success)' }}>{namespaces.length}</span>
+            <span className="dashboard-mini-stat-label">Namespaces</span>
+          </div>
+        </div>
+        <div className="dashboard-mini-stat">
+          <span className="dashboard-mini-stat-icon" style={{ color: 'var(--info)' }}><Icon name="zap" size={16} /></span>
+          <div className="dashboard-mini-stat-content">
+            <span className="dashboard-mini-stat-value" style={{ color: 'var(--info)' }}>{services.length}</span>
+            <span className="dashboard-mini-stat-label">Services</span>
+          </div>
+        </div>
+        <div className="dashboard-mini-stat">
+          <span className="dashboard-mini-stat-icon" style={{ color: 'var(--warning)' }}><Icon name="layers" size={16} /></span>
+          <div className="dashboard-mini-stat-content">
+            <span className="dashboard-mini-stat-value" style={{ color: 'var(--warning)' }}>{deployments.length}</span>
+            <span className="dashboard-mini-stat-label">Deployments</span>
+          </div>
+        </div>
+        <div className="dashboard-mini-stat">
+          <span className="dashboard-mini-stat-icon" style={{ color: 'var(--text-secondary)' }}><Icon name="server" size={16} /></span>
+          <div className="dashboard-mini-stat-content">
+            <span className="dashboard-mini-stat-value" style={{ color: 'var(--text-secondary)' }}>{k8sNodes.length}</span>
+            <span className="dashboard-mini-stat-label">Nodes</span>
+          </div>
         </div>
       </div>
 
-      {/* ── IP Pool Management ─────────────────────────────────── */}
-      <div className="subsection">
-        <div className="subsection-header">
-          <h3>IP Pools</h3>
-          <button className="refresh-btn" onClick={() => openPoolForm()} title="Create new IP pool">
-            <Icon name="plus" size={16} />
-            <span>Add Pool</span>
-          </button>
+      {loadingData && (
+        <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
+          <div className="spinner" style={{ margin: '0 auto 12px' }} />
+          Loading cluster resources...
         </div>
+      )}
 
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/*  IP Pools */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      <ConfigSection title="IP Pools" icon="hard-drive" iconColor="var(--primary)" expanded={sections.ippools} onToggle={() => toggleSection('ippools')}>
         {ipPools.length === 0 ? (
-          <EmptyState
-            icon={<Icon name="hard-drive" size={48} />}
-            message="No IP pools defined"
-            submessage="Create an IPPool CRD to define a CIDR range for pod IPs."
-          />
+          <EmptyState icon={<Icon name="hard-drive" size={32} />} message="No IP pools" submessage="" />
         ) : (
           <div className="storage-table-wrapper">
-            <table className="storage-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>CIDR</th>
-                  <th>Mode</th>
-                  <th>NAT</th>
-                  <th>Status</th>
-                  <th>Node Selector</th>
-                  <th>Actions</th>
+            <table className="storage-table"><thead><tr><th>Name</th><th>CIDR</th><th>Mode</th><th>NAT</th><th>Status</th></tr></thead>
+              <tbody>{ipPools.map(p => (
+                <tr key={p.name}><td className="cell-mono"><span style={{ display:'flex',alignItems:'center',gap:6 }}><span style={{ width:8,height:8,borderRadius:'50%',backgroundColor:p.disabled?'var(--danger)':'var(--success)',display:'inline-block' }}/>{p.name}</span></td>
+                  <td className="cell-mono">{p.cidr}</td>
+                  <td><span className="badge badge-muted" style={{ color:MODE_COLORS[p.mode]||'var(--text-tertiary)',borderColor:MODE_COLORS[p.mode]||'var(--border)' }}>{p.mode.toUpperCase()}</span></td>
+                  <td>{p.nat_outgoing ? <span className="badge badge-success">Enabled</span> : <span className="badge badge-muted">Disabled</span>}</td>
+                  <td>{p.disabled ? <span className="badge badge-warning">Disabled</span> : <span className="badge badge-success">Active</span>}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {ipPools.map((pool, idx) => (
-                  <tr key={pool.name} className="stagger-item" style={{ animationDelay: `${idx * 0.04}s` }}>
-                    <td className="cell-mono">
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{
-                          width: 8, height: 8, borderRadius: '50%',
-                          backgroundColor: pool.disabled ? 'var(--danger)' : 'var(--success)',
-                          display: 'inline-block', flexShrink: 0,
-                        }} />
-                        {pool.name}
-                      </span>
-                    </td>
-                    <td className="cell-mono">{pool.cidr}</td>
-                    <td>
-                      <span className="badge badge-muted" style={{
-                        color: getPoolModeColor(pool.mode),
-                        borderColor: getPoolModeColor(pool.mode),
-                      }}>
-                        {pool.mode.toUpperCase()}
-                      </span>
-                    </td>
-                    <td>
-                      {pool.nat_outgoing ? (
-                        <span className="badge badge-success">Enabled</span>
-                      ) : (
-                        <span className="badge badge-muted">Disabled</span>
-                      )}
-                    </td>
-                    <td>
-                      {pool.disabled ? (
-                        <span className="badge badge-warning">Disabled</span>
-                      ) : (
-                        <span className="badge badge-success">Active</span>
-                      )}
-                    </td>
-                    <td className="cell-mono" style={{ fontSize: 11, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {pool.node_selector || <span style={{ color: 'var(--text-tertiary)', fontStyle: 'italic' }}>all()</span>}
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        <button className="refresh-btn" onClick={() => openPoolForm(pool)} title="Edit pool" style={{ padding: '4px 8px' }}>
-                          <Icon name="edit" size={14} />
-                        </button>
-                        <button className="refresh-btn" onClick={() => deletePool(pool.name)} title="Delete pool" style={{ padding: '4px 8px', color: 'var(--danger)' }}>
-                          <Icon name="trash-2" size={14} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+              ))}</tbody>
             </table>
           </div>
         )}
-      </div>
+      </ConfigSection>
 
-      {/* ── BGP Peer Management ────────────────────────────────── */}
-      <div className="subsection">
-        <div className="subsection-header">
-          <h3>BGP Peers</h3>
-          <button className="refresh-btn" onClick={() => openPeerForm()} title="Create new BGP peer">
-            <Icon name="plus" size={16} />
-            <span>Add Peer</span>
-          </button>
-        </div>
-
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/*  BGP Peers */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      <ConfigSection title="BGP Peers" icon="git-branch" iconColor="var(--info)" expanded={sections.bgppeers} onToggle={() => toggleSection('bgppeers')}>
         {bgpPeers.length === 0 ? (
-          <EmptyState
-            icon={<Icon name="git-branch" size={48} />}
-            message="No BGP peers configured"
-            submessage="Add a BGPPeer CRD to establish BGP sessions."
-          />
+          <EmptyState icon={<Icon name="git-branch" size={32} />} message="No BGP peers" submessage="" />
         ) : (
           <div className="storage-table-wrapper">
-            <table className="storage-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Peer IP</th>
-                  <th>Peer ASN</th>
-                  <th>Node ASN</th>
-                  <th>Node</th>
-                  <th>Session</th>
-                  <th>Actions</th>
+            <table className="storage-table"><thead><tr><th>Name</th><th>Peer IP</th><th>Peer ASN</th><th>Node</th><th>Session</th></tr></thead>
+              <tbody>{bgpPeers.map(p => (
+                <tr key={p.name}><td className="cell-mono">{p.name}</td><td className="cell-mono">{p.peer_ip||'-'}</td><td className="cell-mono">{p.peer_as_number??'-'}</td>
+                  <td className="cell-mono">{p.node||<span style={{color:'var(--text-tertiary)',fontStyle:'italic'}}>Global</span>}</td>
+                  <td>{p.session_state==='up'?<span className="badge badge-success">UP</span>:p.session_state==='down'?<span className="badge badge-warning">DOWN</span>:<span className="badge badge-muted">{p.session_state||'unknown'}</span>}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {bgpPeers.map((peer, idx) => (
-                  <tr key={peer.name} className="stagger-item" style={{ animationDelay: `${idx * 0.04}s` }}>
-                    <td className="cell-mono">{peer.name}</td>
-                    <td className="cell-mono">{peer.peer_ip || '-'}</td>
-                    <td className="cell-mono">{peer.peer_as_number ?? '-'}</td>
-                    <td className="cell-mono">{peer.node_as_number ?? '-'}</td>
-                    <td className="cell-mono">{peer.node || <span style={{ color: 'var(--text-tertiary)', fontStyle: 'italic' }}>Global</span>}</td>
-                    <td>
-                      {peer.session_state === 'up' ? (
-                        <span className="badge badge-success">UP</span>
-                      ) : peer.session_state === 'down' ? (
-                        <span className="badge badge-warning">DOWN</span>
-                      ) : (
-                        <span className="badge badge-muted">{peer.session_state || 'unknown'}</span>
-                      )}
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        <button className="refresh-btn" onClick={() => openPeerForm(peer)} title="Edit peer" style={{ padding: '4px 8px' }}>
-                          <Icon name="edit" size={14} />
-                        </button>
-                        <button className="refresh-btn" onClick={() => deletePeer(peer.name)} title="Delete peer" style={{ padding: '4px 8px', color: 'var(--danger)' }}>
-                          <Icon name="trash-2" size={14} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+              ))}</tbody>
             </table>
           </div>
         )}
-      </div>
+      </ConfigSection>
 
-      {/* ── Backend Status ─────────────────────────────────────── */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/*  Namespaces */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      <ConfigSection title="Namespaces" icon="layout-dashboard" iconColor="var(--success)" expanded={sections.namespaces} onToggle={() => toggleSection('namespaces')} addLabel="Create" onAdd={() => requireAuth(() => openModal('namespace'))}>
+        {namespaces.length === 0 ? (
+          <EmptyState icon={<Icon name="layout-dashboard" size={32} />} message="No namespaces" submessage="" />
+        ) : (
+          <div className="storage-table-wrapper">
+            <table className="storage-table"><thead><tr><th>Name</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody>{namespaces.map(ns => (
+                <tr key={ns.name}><td className="cell-mono">{ns.name}</td>
+                  <td><span className={`badge ${ns.status === 'Active' ? 'badge-success' : 'badge-muted'}`}>{ns.status || 'Active'}</span></td>
+                  <td>
+                    <button className="refresh-btn" onClick={() => requireAuth(async () => {
+                      const err = await deleteResource(`/api/config/namespaces/${ns.name}`)
+                      if (err) alert(err); else loadAll()
+                    })} style={{ padding:'4px 8px',color:'var(--danger)' }} title="Delete namespace"><Icon name="trash-2" size={14} /></button>
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </ConfigSection>
+
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/*  Services */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      <ConfigSection title="Services" icon="zap" iconColor="var(--info)" expanded={sections.services} onToggle={() => toggleSection('services')}>
+        {services.length === 0 ? (
+          <EmptyState icon={<Icon name="zap" size={32} />} message="No services" submessage="" />
+        ) : (
+          <div className="storage-table-wrapper">
+            <table className="storage-table"><thead><tr><th>Name</th><th>Namespace</th><th>Cluster IP</th><th>Type</th><th>Ports</th><th>Actions</th></tr></thead>
+              <tbody>{services.map(s => (
+                <tr key={`${s.namespace}/${s.name}`}><td className="cell-mono">{s.name}</td><td className="cell-mono">{s.namespace}</td>
+                  <td className="cell-mono">{s.cluster_ip}</td><td>{s.type}</td><td className="cell-mono" style={{fontSize:11}}>{s.ports}</td>
+                  <td>
+                    <button className="refresh-btn" onClick={() => requireAuth(async () => {
+                      const err = await deleteResource(`/api/config/services/${s.namespace}/${s.name}`)
+                      if (err) alert(err); else loadAll()
+                    })} style={{ padding:'4px 8px',color:'var(--danger)' }} title="Delete service"><Icon name="trash-2" size={14} /></button>
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </ConfigSection>
+
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/*  ConfigMaps */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      <ConfigSection title="ConfigMaps" icon="layers" iconColor="var(--warning)" expanded={sections.configmaps} onToggle={() => toggleSection('configmaps')}>
+        {configMaps.length === 0 ? (
+          <EmptyState icon={<Icon name="layers" size={32} />} message="No ConfigMaps" submessage="" />
+        ) : (
+          <div className="storage-table-wrapper">
+            <table className="storage-table"><thead><tr><th>Name</th><th>Namespace</th><th>Keys</th><th>Actions</th></tr></thead>
+              <tbody>{configMaps.map(cm => (
+                <tr key={`${cm.namespace}/${cm.name}`}><td className="cell-mono">{cm.name}</td><td className="cell-mono">{cm.namespace}</td>
+                  <td className="cell-mono" style={{fontSize:11}}>{(cm.keys||[]).join(', ') || <span style={{color:'var(--text-tertiary)'}}>—</span>}</td>
+                  <td>
+                    <button className="refresh-btn" onClick={() => requireAuth(async () => {
+                      const err = await deleteResource(`/api/config/configmaps/${cm.namespace}/${cm.name}`)
+                      if (err) alert(err); else loadAll()
+                    })} style={{ padding:'4px 8px',color:'var(--danger)' }} title="Delete ConfigMap"><Icon name="trash-2" size={14} /></button>
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </ConfigSection>
+
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/*  Secrets */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      <ConfigSection title="Secrets" icon="lock" iconColor="var(--danger)" expanded={sections.secrets} onToggle={() => toggleSection('secrets')}>
+        {secrets.length === 0 ? (
+          <EmptyState icon={<Icon name="lock" size={32} />} message="No Secrets" submessage="" />
+        ) : (
+          <div className="storage-table-wrapper">
+            <table className="storage-table"><thead><tr><th>Name</th><th>Namespace</th><th>Type</th><th>Keys</th><th>Actions</th></tr></thead>
+              <tbody>{secrets.map(s => (
+                <tr key={`${s.namespace}/${s.name}`}><td className="cell-mono">{s.name}</td><td className="cell-mono">{s.namespace}</td><td>{s.type}</td>
+                  <td className="cell-mono" style={{fontSize:11}}>{(s.keys||[]).join(', ') || <span style={{color:'var(--text-tertiary)'}}>—</span>}</td>
+                  <td>
+                    <button className="refresh-btn" onClick={() => requireAuth(async () => {
+                      const err = await deleteResource(`/api/config/secrets/${s.namespace}/${s.name}`)
+                      if (err) alert(err); else loadAll()
+                    })} style={{ padding:'4px 8px',color:'var(--danger)' }} title="Delete Secret"><Icon name="trash-2" size={14} /></button>
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </ConfigSection>
+
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/*  Deployments */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      <ConfigSection title="Deployments" icon="layers" iconColor="var(--warning)" expanded={sections.deployments} onToggle={() => toggleSection('deployments')}>
+        {deployments.length === 0 ? (
+          <EmptyState icon={<Icon name="layers" size={32} />} message="No deployments" submessage="" />
+        ) : (
+          <div className="storage-table-wrapper">
+            <table className="storage-table"><thead><tr><th>Name</th><th>Namespace</th><th>Replicas</th><th>Ready</th><th>Image</th><th>Actions</th></tr></thead>
+              <tbody>{deployments.map(d => (
+                <tr key={`${d.namespace}/${d.name}`}><td className="cell-mono">{d.name}</td><td className="cell-mono">{d.namespace}</td>
+                  <td className="cell-mono">{d.replicas}</td>
+                  <td><span className={`badge ${d.ready_replicas === d.replicas && d.replicas > 0 ? 'badge-success' : 'badge-warning'}`}>{d.ready_replicas}/{d.replicas}</span></td>
+                  <td className="cell-mono" style={{fontSize:11,maxWidth:200,overflow:'hidden',textOverflow:'ellipsis'}}>{d.image||'-'}</td>
+                  <td>
+                    <div style={{display:'flex',gap:4}}>
+                      <button className="refresh-btn" onClick={() => requireAuth(async () => {
+                        const replicas = prompt('New replica count:', String(d.replicas))
+                        if (!replicas) return
+                        const err = await writeResource(`/api/config/deployments/${d.namespace}/${d.name}/scale`, 'POST', { replicas: parseInt(replicas) })
+                        if (err) alert(err); else loadAll()
+                      })} style={{padding:'4px 8px'}} title="Scale">🔢</button>
+                      <button className="refresh-btn" onClick={() => requireAuth(async () => {
+                        const err = await writeResource(`/api/config/deployments/${d.namespace}/${d.name}/restart`, 'POST', {})
+                        if (err) alert(err); else loadAll()
+                      })} style={{padding:'4px 8px'}} title="Restart">🔄</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </ConfigSection>
+
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/*  Nodes */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      <ConfigSection title="Nodes" icon="server" iconColor="var(--text-secondary)" expanded={sections.nodes} onToggle={() => toggleSection('nodes')}>
+        {k8sNodes.length === 0 ? (
+          <EmptyState icon={<Icon name="server" size={32} />} message="No node data" submessage="" />
+        ) : (
+          <div className="storage-table-wrapper">
+            <table className="storage-table"><thead><tr><th>Name</th><th>Role</th><th>IP</th><th>Status</th><th>Scheduling</th><th>Version</th><th>Actions</th></tr></thead>
+              <tbody>{k8sNodes.map(n => (
+                <tr key={n.name}><td className="cell-mono">{n.name}</td>
+                  <td><span className="badge badge-muted" style={{color:n.role==='master'?'#EC4899':'#3B82F6',borderColor:n.role==='master'?'rgba(236,72,153,0.3)':'rgba(59,130,246,0.3)'}}>{n.role}</span></td>
+                  <td className="cell-mono">{n.ip}</td>
+                  <td>{n.ready ? <span className="badge badge-success">Ready</span> : <span className="badge badge-muted" style={{color:'var(--danger)',borderColor:'rgba(239,68,68,0.3)'}}>Not Ready</span>}</td>
+                  <td>{n.unschedulable ? <span className="badge badge-warning">Cordoned</span> : <span className="badge badge-success">Schedulable</span>}</td>
+                  <td className="cell-mono" style={{fontSize:11}}>{n.kubelet_version}</td>
+                  <td>
+                    {n.unschedulable ? (
+                      <button className="refresh-btn" onClick={() => requireAuth(async () => {
+                        const err = await writeResource(`/api/config/nodes/${n.name}/uncordon`, 'POST', {})
+                        if (err) alert(err); else loadAll()
+                      })} style={{padding:'4px 8px',color:'var(--success)'}} title="Uncordon">Uncordon</button>
+                    ) : (
+                      <button className="refresh-btn" onClick={() => requireAuth(async () => {
+                        const err = await writeResource(`/api/config/nodes/${n.name}/cordon`, 'POST', {})
+                        if (err) alert(err); else loadAll()
+                      })} style={{padding:'4px 8px',color:'var(--warning)'}} title="Cordon">Cordon</button>
+                    )}
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </ConfigSection>
+
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/*  Backend Status */}
+      {/* ═══════════════════════════════════════════════════════════ */}
       <div className="subsection">
-        <div className="subsection-header">
-          <h3>Backend Status</h3>
-        </div>
-        <div className="dashboard-card gradient-border-card" style={{ display: 'block', padding: '20px' }}>
-          {settingsLoading ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
-              <div className="spinner" style={{ margin: '0 auto 12px' }} />
-              Loading settings...
-            </div>
-          ) : settings ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div className="rbac-detail-row">
-                <span className="rbac-detail-label">K8s Mode</span>
-                <span className="rbac-detail-value mono">{settings.k8s_mode}</span>
-              </div>
-              <div className="rbac-detail-row">
-                <span className="rbac-detail-label">Prometheus</span>
-                <span className="rbac-detail-value mono">{settings.prometheus_url}</span>
-              </div>
-              <div className="rbac-detail-row">
-                <span className="rbac-detail-label">AI Model</span>
-                <span className="rbac-detail-value mono">
-                  {settings.ai_enabled ? settings.ai_model : <span style={{ color: 'var(--text-tertiary)', fontStyle: 'italic' }}>Disabled</span>}
-                </span>
-              </div>
-              <div className="rbac-detail-row">
-                <span className="rbac-detail-label">API Key</span>
-                <span className="rbac-detail-value">
-                  {settings.has_api_key ? (
-                    <span className="badge badge-success">Configured</span>
-                  ) : (
-                    <span className="badge badge-muted">Not set</span>
-                  )}
-                </span>
-              </div>
-              <div className="rbac-detail-row">
-                <span className="rbac-detail-label">Falco Secret</span>
-                <span className="rbac-detail-value">
-                  {settings.has_falco_webhook_secret ? (
-                    <span className="badge badge-success">Configured</span>
-                  ) : (
-                    <span className="badge badge-warning">Not set</span>
-                  )}
-                </span>
-              </div>
-              <div className="rbac-detail-row">
-                <span className="rbac-detail-label">Redis Auth</span>
-                <span className="rbac-detail-value">
-                  {settings.has_redis_password ? (
-                    <span className="badge badge-success">Configured</span>
-                  ) : (
-                    <span className="badge badge-muted">Not set</span>
-                  )}
-                </span>
-              </div>
+        <div className="subsection-header"><h3>Backend Status</h3></div>
+        <div className="dashboard-card gradient-border-card" style={{ display:'block', padding:'20px' }}>
+          {settings ? (
+            <div style={{ display:'flex', flexDirection:'column', gap:'12px' }}>
+              <div className="rbac-detail-row"><span className="rbac-detail-label">K8s Mode</span><span className="rbac-detail-value mono">{settings.k8s_mode}</span></div>
+              <div className="rbac-detail-row"><span className="rbac-detail-label">Prometheus</span><span className="rbac-detail-value mono">{settings.prometheus_url}</span></div>
+              <div className="rbac-detail-row"><span className="rbac-detail-label">AI Model</span><span className="rbac-detail-value mono">{settings.ai_enabled ? settings.ai_model : <span style={{color:'var(--text-tertiary)',fontStyle:'italic'}}>Disabled</span>}</span></div>
+              <div className="rbac-detail-row"><span className="rbac-detail-label">Super User PW</span><span className="rbac-detail-value">{settings.has_super_user_password ? <span className="badge badge-success">Configured</span> : <span className="badge badge-muted">Not set</span>}</span></div>
+              <div className="rbac-detail-row"><span className="rbac-detail-label">API Key</span><span className="rbac-detail-value">{settings.has_api_key ? <span className="badge badge-success">Configured</span> : <span className="badge badge-muted">Not set</span>}</span></div>
+              <div className="rbac-detail-row"><span className="rbac-detail-label">Falco Secret</span><span className="rbac-detail-value">{settings.has_falco_webhook_secret ? <span className="badge badge-success">Configured</span> : <span className="badge badge-warning">Not set</span>}</span></div>
             </div>
           ) : (
-            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
-              Unable to load settings.
-            </div>
+            <div style={{padding:'20px',textAlign:'center',color:'var(--text-tertiary)'}}><div className="spinner" style={{margin:'0 auto 12px'}}/>Loading settings...</div>
           )}
         </div>
       </div>
 
-      {/* ── Pool Create/Edit Modal ──────────────────────────────── */}
-      {poolFormOpen && (
-        <div className="config-modal-overlay" onClick={closePoolForm}>
-          <div className="config-modal" onClick={e => e.stopPropagation()}>
-            <div className="config-modal-header">
-              <h3>{editingPool ? 'Edit IP Pool' : 'Create IP Pool'}</h3>
-              <button className="refresh-btn" onClick={closePoolForm} style={{ padding: '4px 8px' }}>
-                <Icon name="x" size={16} />
-              </button>
-            </div>
-            <div className="config-modal-body">
-              {!editingPool && (
-                <>
-                  <div className="config-form-group">
-                    <label className="config-form-label">Name</label>
-                    <input className="config-form-input" value={poolForm.name} onChange={e => setPoolForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. production-pool" />
-                  </div>
-                  <div className="config-form-group">
-                    <label className="config-form-label">CIDR</label>
-                    <input className="config-form-input" value={poolForm.cidr} onChange={e => setPoolForm(f => ({ ...f, cidr: e.target.value }))} placeholder="e.g. 10.244.0.0/16" />
-                  </div>
-                </>
-              )}
-              <div className="config-form-group">
-                <label className="config-form-label">Encapsulation Mode</label>
-                <div className="config-chip-group">
-                  {(['vxlan', 'ipip', 'none'] as const).map(mode => (
-                    <button
-                      key={mode}
-                      className={`security-chip ${poolForm.mode === mode ? 'active' : ''}`}
-                      onClick={() => setPoolForm(f => ({ ...f, mode }))}
-                    >
-                      {mode.toUpperCase()}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="config-form-row">
-                <div className="config-form-group" style={{ flex: 1 }}>
-                  <label className="config-form-label">NAT Outgoing</label>
-                  <div className="config-toggle-group">
-                    <button
-                      className={`security-chip ${poolForm.nat_outgoing ? 'active chip-success' : ''}`}
-                      onClick={() => setPoolForm(f => ({ ...f, nat_outgoing: true }))}
-                    >
-                      Enabled
-                    </button>
-                    <button
-                      className={`security-chip ${!poolForm.nat_outgoing ? 'active' : ''}`}
-                      onClick={() => setPoolForm(f => ({ ...f, nat_outgoing: false }))}
-                    >
-                      Disabled
-                    </button>
-                  </div>
-                </div>
-                <div className="config-form-group" style={{ flex: 1 }}>
-                  <label className="config-form-label">Status</label>
-                  <div className="config-toggle-group">
-                    <button
-                      className={`security-chip ${!poolForm.disabled ? 'active chip-success' : ''}`}
-                      onClick={() => setPoolForm(f => ({ ...f, disabled: false }))}
-                    >
-                      Active
-                    </button>
-                    <button
-                      className={`security-chip ${poolForm.disabled ? 'active chip-danger' : ''}`}
-                      onClick={() => setPoolForm(f => ({ ...f, disabled: true }))}
-                    >
-                      Disabled
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <div className="config-form-group">
-                <label className="config-form-label">Node Selector</label>
-                <input className="config-form-input" value={poolForm.node_selector} onChange={e => setPoolForm(f => ({ ...f, node_selector: e.target.value }))} placeholder="e.g. all()" />
-              </div>
+      {/* ── Modals ── */}
+      {modal && renderModal()}
+      {showAuth && <SuperUserModal onAuthenticated={handleAuthenticated} onCancel={handleAuthCancel} />}
 
-              {poolError && <div className="config-form-error">{poolError}</div>}
-
-              <div className="config-modal-actions">
-                <button className="refresh-btn" onClick={closePoolForm}>Cancel</button>
-                <button
-                  className="refresh-btn"
-                  onClick={savePool}
-                  disabled={poolSaving || (!editingPool && (!poolForm.name || !poolForm.cidr))}
-                  style={{
-                    backgroundColor: 'var(--primary)',
-                    color: '#fff',
-                    borderColor: 'var(--primary)',
-                  }}
-                >
-                  {poolSaving ? <>Saving...</> : <>{editingPool ? 'Update Pool' : 'Create Pool'}</>}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── BGP Peer Create/Edit Modal ───────────────────────────── */}
-      {peerFormOpen && (
-        <div className="config-modal-overlay" onClick={closePeerForm}>
-          <div className="config-modal" onClick={e => e.stopPropagation()}>
-            <div className="config-modal-header">
-              <h3>{editingPeer ? 'Edit BGP Peer' : 'Create BGP Peer'}</h3>
-              <button className="refresh-btn" onClick={closePeerForm} style={{ padding: '4px 8px' }}>
-                <Icon name="x" size={16} />
-              </button>
-            </div>
-            <div className="config-modal-body">
-              {!editingPeer && (
-                <>
-                  <div className="config-form-group">
-                    <label className="config-form-label">Name</label>
-                    <input className="config-form-input" value={peerForm.name} onChange={e => setPeerForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. peer-to-spine-1" />
-                  </div>
-                </>
-              )}
-              <div className="config-form-group">
-                <label className="config-form-label">Peer IP</label>
-                <input className="config-form-input" value={peerForm.peer_ip} onChange={e => setPeerForm(f => ({ ...f, peer_ip: e.target.value }))} placeholder="e.g. 10.0.0.1" />
-              </div>
-              <div className="config-form-row">
-                <div className="config-form-group" style={{ flex: 1 }}>
-                  <label className="config-form-label">Peer AS Number</label>
-                  <input className="config-form-input" type="number" min={1} max={65535} value={peerForm.peer_as_number} onChange={e => setPeerForm(f => ({ ...f, peer_as_number: parseInt(e.target.value) || 64512 }))} />
-                </div>
-                <div className="config-form-group" style={{ flex: 1 }}>
-                  <label className="config-form-label">Node AS Number</label>
-                  <input className="config-form-input" type="number" min={1} max={65535} value={peerForm.node_as_number ?? ''} onChange={e => setPeerForm(f => ({ ...f, node_as_number: e.target.value ? parseInt(e.target.value) : null }))} placeholder="Optional" />
-                </div>
-              </div>
-              <div className="config-form-group">
-                <label className="config-form-label">Node (optional — blank = global peer)</label>
-                <input className="config-form-input" value={peerForm.node ?? ''} onChange={e => setPeerForm(f => ({ ...f, node: e.target.value || null }))} placeholder="e.g. worker-1" />
-              </div>
-
-              {peerError && <div className="config-form-error">{peerError}</div>}
-
-              <div className="config-modal-actions">
-                <button className="refresh-btn" onClick={closePeerForm}>Cancel</button>
-                <button
-                  className="refresh-btn"
-                  onClick={savePeer}
-                  disabled={peerSaving || (!editingPeer && (!peerForm.name || !peerForm.peer_ip))}
-                  style={{
-                    backgroundColor: 'var(--primary)',
-                    color: '#fff',
-                    borderColor: 'var(--primary)',
-                  }}
-                >
-                  {peerSaving ? <>Saving...</> : <>{editingPeer ? 'Update Peer' : 'Create Peer'}</>}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Scoped CSS ── */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/*  Scoped CSS */}
+      {/* ═══════════════════════════════════════════════════════════ */}
       <style>{`
-        .config-section .dashboard-compact-bar {
-          margin-bottom: 20px;
+        .config-section-card {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          margin-bottom: 12px;
+          overflow: hidden;
+          transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .config-section-card:hover {
+          border-color: var(--border-hover);
+          box-shadow: var(--shadow-hover);
+        }
+        .config-section-toggle {
+          padding: 14px 18px !important;
+        }
+        .config-section-body {
+          border-top: 1px solid var(--border);
+          padding: 16px;
+          animation: fadeSlideIn 0.2s ease-out;
+        }
+        .config-section .storage-table-wrapper {
+          margin: 0;
+        }
+        .su-bar {
+          transition: border-color 0.3s ease;
+        }
+        .su-bar.su-authenticated {
+          border-color: rgba(16, 185, 129, 0.3);
+          background: rgba(16, 185, 129, 0.03);
         }
         .config-modal-overlay {
           position: fixed;
           inset: 0;
-          background: rgba(0, 0, 0, 0.6);
+          background: rgba(0,0,0,0.6);
           backdrop-filter: blur(4px);
           display: flex;
           align-items: center;
@@ -660,104 +690,22 @@ export function ClusterConfigPanel() {
           max-width: 520px;
           max-height: 90vh;
           overflow-y: auto;
-          box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+          box-shadow: 0 16px 48px rgba(0,0,0,0.5);
           animation: slideUp 0.2s ease;
         }
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        .config-modal-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 18px 20px;
-          border-bottom: 1px solid var(--border);
-        }
-        .config-modal-header h3 {
-          font-size: 16px;
-          font-weight: 600;
-          color: var(--text);
-          margin: 0;
-        }
-        .config-modal-body {
-          padding: 20px;
-        }
-        .config-modal-actions {
-          display: flex;
-          justify-content: flex-end;
-          gap: 10px;
-          margin-top: 20px;
-          padding-top: 16px;
-          border-top: 1px solid var(--border);
-        }
-        .config-form-group {
-          margin-bottom: 14px;
-        }
-        .config-form-label {
-          display: block;
-          font-size: 11px;
-          font-weight: 600;
-          color: var(--text-secondary);
-          text-transform: uppercase;
-          letter-spacing: 0.4px;
-          margin-bottom: 6px;
-        }
-        .config-form-input {
-          width: 100%;
-          padding: 9px 12px;
-          background-color: var(--bg);
-          border: 1px solid var(--border);
-          border-radius: var(--radius);
-          color: var(--text);
-          font-size: 13px;
-          font-family: inherit;
-          transition: border-color 0.2s ease, box-shadow 0.2s ease;
-        }
-        .config-form-input:focus {
-          outline: none;
-          border-color: var(--primary);
-          box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
-        }
-        .config-form-row {
-          display: flex;
-          gap: 12px;
-        }
-        .config-chip-group {
-          display: flex;
-          gap: 6px;
-        }
-        .config-form-error {
-          background: rgba(239, 68, 68, 0.1);
-          border: 1px solid rgba(239, 68, 68, 0.3);
-          border-radius: var(--radius);
-          padding: 10px 14px;
-          font-size: 13px;
-          color: var(--danger);
-          margin-bottom: 12px;
-        }
-        .config-modal .security-chip.chip-success.active {
-          background-color: var(--success);
-          border-color: var(--success);
-          color: white;
-        }
-        @media (max-width: 768px) {
-          .config-modal {
-            width: 95%;
-            max-width: 100%;
-          }
-          .config-form-row {
-            flex-direction: column;
-            gap: 0;
-          }
-          .config-chip-group {
-            flex-wrap: wrap;
-          }
-        }
+        @keyframes slideUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+        @keyframes fadeSlideIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
+        .config-modal-header { display:flex; justify-content:space-between; align-items:center; padding:18px 20px; border-bottom:1px solid var(--border); }
+        .config-modal-header h3 { font-size:16px; font-weight:600; color:var(--text); margin:0; }
+        .config-modal-body { padding:20px; }
+        .config-modal-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:20px; padding-top:16px; border-top:1px solid var(--border); }
+        .config-form-group { margin-bottom:14px; }
+        .config-form-label { display:block; font-size:11px; font-weight:600; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.4px; margin-bottom:6px; }
+        .config-form-input { width:100%; padding:9px 12px; background-color:var(--bg); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); font-size:13px; font-family:inherit; transition:border-color 0.2s ease, box-shadow 0.2s ease; }
+        .config-form-input:focus { outline:none; border-color:var(--primary); box-shadow:0 0 0 1px rgba(59,130,246,0.3); }
+        .config-form-error { background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:var(--radius); padding:10px 14px; font-size:13px; color:var(--danger); margin-bottom:12px; }
+        .config-section .dashboard-compact-bar { margin-bottom:20px; }
       `}</style>
     </div>
   )
