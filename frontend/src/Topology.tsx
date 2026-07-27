@@ -533,8 +533,7 @@ export function Topology({ nodes, edges }: TopologyProps) {
           } as EleStyle,
         },
         {
-          selector: 'node[type="pod"]:selected, node[type="pod"]:active,
-                     node[type="pod"]:hover',
+          selector: 'node[type="pod"]:selected, node[type="pod"]:active, node[type="pod"]:hover',
           style: {
             'border-color': COLORS.selection,
             'border-width': 3,
@@ -552,8 +551,7 @@ export function Topology({ nodes, edges }: TopologyProps) {
           },
         },
         {
-          selector: 'node[type="service"]:selected, node[type="service"]:active,
-                     node[type="service"]:hover',
+          selector: 'node[type="service"]:selected, node[type="service"]:active, node[type="service"]:hover',
           style: {
             'border-color': COLORS.selection,
             'border-width': 3,
