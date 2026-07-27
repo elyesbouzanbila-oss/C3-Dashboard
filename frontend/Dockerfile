@@ -3,6 +3,11 @@ FROM node:22-alpine AS build
 
 WORKDIR /app
 
+# VirtualBox workaround: disable npm strict SSL to avoid TLS packet
+# corruption (ERR_SSL_CIPHER_OPERATION_FAILED) on the virtio/e1000 driver.
+# This is safe for a private lab cluster behind VirtualBox NAT.
+ENV npm_config_strict_ssl=false
+
 COPY package.json package-lock.json* ./
 RUN npm cache clean --force && \
     npm install --omit=optional --no-audit --no-fund --network-timeout=300000 --maxsockets=3
