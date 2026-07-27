@@ -188,36 +188,60 @@
   border-color: rgba(255, 255, 255, 0.1);
 }
 
-/* ─── Graph Canvas with Dot-Grid Background ──────────────────── */
+/* ─── Graph Canvas with enhanced Dot-Grid & Depth ──────────── */
 .topology-graph-wrapper {
   position: relative;
   height: 580px;
   background:
-    radial-gradient(circle, rgba(59, 130, 246, 0.06) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(10, 14, 26, 0.98) 0%, rgba(19, 26, 46, 0.95) 50%, rgba(10, 14, 26, 0.98) 100%);
-  background-size: 24px 24px, 100% 100%;
+    /* Fine dot grid */
+    radial-gradient(circle, rgba(59, 130, 246, 0.07) 1.2px, transparent 1.2px),
+    /* Slightly larger accent dots for depth */
+    radial-gradient(circle, rgba(139, 92, 246, 0.04) 1px, transparent 1px),
+    /* Main gradient with subtle blue-violet tint */
+    linear-gradient(180deg, rgba(8, 12, 24, 0.98) 0%, rgba(14, 20, 38, 0.96) 40%, rgba(18, 24, 44, 0.93) 60%, rgba(10, 14, 26, 0.98) 100%);
+  background-size: 24px 24px, 48px 48px, 100% 100%;
   overflow: hidden;
   transition: background-size 0.3s ease;
 }
 
-/* Subtle animated glow at the center */
+/* Dual-layer animated glow at the center */
 .topology-graph-wrapper::before {
   content: '';
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 500px;
-  height: 500px;
+  width: 600px;
+  height: 600px;
   transform: translate(-50%, -50%);
-  background: radial-gradient(circle, rgba(59, 130, 246, 0.04) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.05) 0%, rgba(139, 92, 246, 0.02) 40%, transparent 70%);
   pointer-events: none;
   z-index: 0;
-  animation: topologyGlowPulse 6s ease-in-out infinite;
+  animation: topologyGlowPulse 5s ease-in-out infinite;
+}
+
+/* Secondary larger, slower pulse */
+.topology-graph-wrapper::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 800px;
+  height: 800px;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.02) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+  animation: topologyGlowPulse2 8s ease-in-out infinite;
 }
 
 @keyframes topologyGlowPulse {
-  0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(1); }
-  50% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+  0%, 100% { opacity: 0.4; transform: translate(-50%, -50%) scale(1); }
+  50% { opacity: 1; transform: translate(-50%, -50%) scale(1.15); }
+}
+
+@keyframes topologyGlowPulse2 {
+  0%, 100% { opacity: 0.3; transform: translate(-50%, -50%) scale(1); }
+  50% { opacity: 0.8; transform: translate(-50%, -50%) scale(1.2); }
 }
 
 .topology-graph {
@@ -279,7 +303,7 @@
   height: 16px;
 }
 
-/* ─── Toast Info Bar (glass-morphism) ────────────────────────── */
+/* ─── Toast Info Bar (glass-morphism with glow) ──────────────── */
 .topology-toast {
   position: absolute;
   bottom: 16px;
@@ -289,6 +313,7 @@
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 3px solid var(--primary);
   border-radius: 10px;
   padding: 12px 22px;
   font-size: 12px;
@@ -301,7 +326,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   font-family: 'SF Mono', 'Courier New', monospace;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(59, 130, 246, 0.05);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 30px rgba(59, 130, 246, 0.08);
   z-index: 100;
   line-height: 1.5;
 }
@@ -479,11 +504,12 @@
   font-style: italic;
   letter-spacing: 0.3px;
   border-top: 1px solid rgba(255, 255, 255, 0.03);
-  transition: color 0.2s ease;
+  transition: color 0.2s ease, border-color 0.2s ease;
 }
 
 .topology-container:hover .topology-hint {
   color: var(--text-secondary);
+  border-top-color: rgba(255, 255, 255, 0.06);
 }
 
 /* ─── Smooth Animation ───────────────────────────────────────── */
@@ -518,6 +544,7 @@
 @media (max-width: 1024px) {
   .topology-graph-wrapper {
     height: 450px;
+    background-size: 22px 22px, 48px 48px, 100% 100%;
   }
 
   .topology-legend {
@@ -536,7 +563,7 @@
 @media (max-width: 768px) {
   .topology-graph-wrapper {
     height: 380px;
-    background-size: 20px 20px, 100% 100%;
+    background-size: 18px 18px, 36px 36px, 100% 100%;
   }
 
   .topology-stats-bar {
