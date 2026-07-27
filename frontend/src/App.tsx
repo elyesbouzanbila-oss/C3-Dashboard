@@ -13,6 +13,7 @@ import { DiagnosticsPanel } from './components/DiagnosticsPanel'
 import { ThreatPanel } from './components/ThreatPanel'
 import { SecurityPanel } from './components/SecurityPanel'
 import { ChatPanel } from './components/ChatPanel'
+import { ClusterConfigPanel } from './components/ClusterConfigPanel'
 
 interface TabDef {
   id: string
@@ -29,6 +30,7 @@ const TABS: TabDef[] = [
   { id: 'diagnostics', label: 'Diagnostics', icon: <Icon name="play" /> },
   { id: 'threats', label: 'Threats', icon: <Icon name="alert-triangle" /> },
   { id: 'security', label: 'Security', icon: <Icon name="shield" /> },
+  { id: 'config', label: 'Configure', icon: <Icon name="settings" /> },
 ]
 
 function AppContent() {
@@ -193,6 +195,7 @@ function AppContent() {
               {tab.id === 'diagnostics' && <DiagnosticsPanel />}
               {tab.id === 'threats' && <ThreatPanel />}
               {tab.id === 'security' && <SecurityPanel />}
+              {tab.id === 'config' && <ClusterConfigPanel />}
             </div>
           ))}
         </ErrorBoundary>

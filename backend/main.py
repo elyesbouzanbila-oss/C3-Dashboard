@@ -14,6 +14,7 @@ from routers import mock
 from routers import cni as cni_router
 from routers import security as security_router
 from routers import ai as ai_router
+from routers import config as config_router
 from services.logging_service import get_logger
 
 logger = get_logger(__name__)
@@ -76,7 +77,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.FRONTEND_URL],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type"],
 )
 
@@ -96,3 +97,4 @@ app.include_router(threats_router.router, prefix="/api/threats", tags=["threats"
 app.include_router(cni_router.router)
 app.include_router(security_router.router)
 app.include_router(ai_router.router)
+app.include_router(config_router.router)

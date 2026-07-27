@@ -238,3 +238,33 @@ export interface ApiResponse<T> {
   status: 'success' | 'mock' | 'error'
   data: T
 }
+
+// ─── Configuration Types ──────────────────────────────────────────
+
+export interface ConfigSettings {
+  k8s_mode: string
+  prometheus_url: string
+  ai_enabled: boolean
+  ai_model: string
+  frontend_url: string
+  has_api_key: boolean
+  has_redis_password: boolean
+  has_falco_webhook_secret: boolean
+}
+
+export interface IPPoolFormData {
+  name: string
+  cidr: string
+  nat_outgoing: boolean
+  disabled: boolean
+  mode: 'ipip' | 'vxlan' | 'none'
+  node_selector: string
+}
+
+export interface BGPPeerFormData {
+  name: string
+  peer_ip: string
+  peer_as_number: number
+  node_as_number?: number | null
+  node?: string | null
+}
