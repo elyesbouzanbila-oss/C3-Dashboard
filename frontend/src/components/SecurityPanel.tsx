@@ -88,8 +88,8 @@ export function SecurityPanel() {
       <h2>Security Audit</h2>
 
       {/* ── Summary Stats ─────────────────────────────────────── */}
-      <div className="security-stats" style={{ marginBottom: '20px' }}>
-        <div className="security-stat-card">
+      <div className="security-stats stagger-container" style={{ marginBottom: '20px' }}>
+        <div className="security-stat-card stagger-item gradient-border-card">
           <div className="security-stat-icon stat-icon-bindings">
             <Icon name="layers" size={24} />
           </div>
@@ -98,7 +98,7 @@ export function SecurityPanel() {
             <span className="security-stat-label">Total Bindings</span>
           </div>
         </div>
-        <div className="security-stat-card">
+        <div className="security-stat-card stagger-item gradient-border-card">
           <div className="security-stat-icon stat-icon-admin">
             <Icon name="shield" size={24} />
           </div>
@@ -108,7 +108,7 @@ export function SecurityPanel() {
             <span className="security-stat-sub">{clusterBindings.length} cluster-wide</span>
           </div>
         </div>
-        <div className="security-stat-card">
+        <div className="security-stat-card stagger-item gradient-border-card">
           <div className="security-stat-icon stat-icon-privileged">
             <Icon name="unlock" size={24} />
           </div>
@@ -119,7 +119,7 @@ export function SecurityPanel() {
             <span className="security-stat-label">Privileged Pods</span>
           </div>
         </div>
-        <div className="security-stat-card">
+        <div className="security-stat-card stagger-item gradient-border-card">
           <div className="security-stat-icon" style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)', color: 'var(--warning)' }}>
             <Icon name="server" size={24} />
           </div>
@@ -177,14 +177,15 @@ export function SecurityPanel() {
             submessage="Try adjusting your search or filter."
           />
         ) : (
-          <div className="rbac-list">
-            {filteredRbac.map(b => {
+          <div className="rbac-list stagger-container">
+            {filteredRbac.map((b, idx) => {
               const isAdmin = b.role_ref.name === 'cluster-admin' || b.role_ref.name === 'admin'
               const isCluster = b.binding_type === 'ClusterRoleBinding'
               return (
                 <div
                   key={`${b.namespace || 'cluster'}-${b.name}`}
-                  className={`rbac-card ${isAdmin && isCluster ? 'admin' : ''}`}
+                  className={`rbac-card ${isAdmin && isCluster ? 'admin' : ''} gradient-border-card stagger-item`}
+                  style={{ animationDelay: `${0.03 + idx * 0.04}s` }}
                 >
                   <div className="rbac-header">
                     <div className="rbac-name-row">
@@ -284,15 +285,16 @@ export function SecurityPanel() {
             submessage="Try adjusting your search."
           />
         ) : (
-          <div className="privileged-list">
-            {filteredPrivileged.map(p => {
+          <div className="privileged-list stagger-container" style={{ display: 'grid', gap: '14px' }}>
+            {filteredPrivileged.map((p, idx) => {
               const isPrivileged = p.privileged
               const isRoot = (p.run_as_user ?? 0) === 0
               const risk = isPrivileged && isRoot ? 'critical' : (isPrivileged || isRoot) ? 'high' : 'low'
               return (
                 <div
                   key={`${p.namespace}/${p.container}`}
-                  className={`privileged-card risk-${risk}`}
+                  className={`privileged-card risk-${risk} gradient-border-card stagger-item`}
+                  style={{ animationDelay: `${0.03 + idx * 0.04}s` }}
                 >
                   <div className="rbac-header">
                     <div className="rbac-name-row">

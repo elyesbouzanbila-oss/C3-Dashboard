@@ -74,20 +74,76 @@ export function ThreatPanel() {
 
   const isFiltered = searchQuery.trim().length > 0 || severityFilter !== 'all'
 
+  // Compute severity counts
+  const severityCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const sev of SEVERITIES) {
+      counts[sev] = displayThreats.filter(t => t.priority === sev).length
+    }
+    return counts
+  }, [displayThreats])
+
   return (
     <div className="section threats-section">
       <h2>Threat Detection</h2>
 
-      <div className="threat-status">
-        <span className={`indicator ${wsConnected ? 'connected' : 'disconnected'}`}></span>
-        {wsConnected ? (
-          <span>Real-time threat monitoring active</span>
-        ) : (
-          <span>Connecting to threat stream...</span>
-        )}
-        <span style={{ marginLeft: 'auto', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-          {paused ? 'Stream paused' : `Showing ${filteredThreats.length} of ${displayThreats.length} events`}
-        </span>
+      {/* ── Polished status bar (compact-bar pattern) ── */}
+      <div className="dashboard-compact-bar stagger-item" style={{ animationDelay: '0s' }}>
+        <div className="dashboard-mini-stat">
+          <span className="dashboard-mini-stat-icon" style={{ color: wsConnected ? 'var(--success)' : 'var(--danger)' }}>
+            <Icon name={wsConnected ? 'radio' : 'alert-triangle'} size={16} />
+          </span>
+          <div className="dashboard-mini-stat-content">
+            <span className="dashboard-mini-stat-value" style={{
+              color: wsConnected ? 'var(--success)' : 'var(--danger)',
+              fontSize: '12px',
+              fontWeight: 600,
+            }}>
+              {wsConnected ? 'Live' : 'Disconnected'}
+            </span>
+            <span className="dashboard-mini-stat-label">
+              {wsConnected ? 'Real-time monitoring active' : 'Connecting to threat stream...'}
+            </span>
+          </div>
+        </div>
+        <div className="dashboard-mini-stat">
+          <span className="dashboard-mini-stat-icon" style={{ color: 'var(--danger)' }}>
+            <Icon name="alert-triangle" size={16} />
+          </span>
+          <div className="dashboard-mini-stat-content">
+            <span className="dashboard-mini-stat-value" style={{ color: 'var(--danger)' }}>
+              {severityCounts.Critical || 0}
+            </span>
+            <span className="dashboard-mini-stat-label">Critical</span>
+          </div>
+        </div>
+        <div className="dashboard-mini-stat">
+          <span className="dashboard-mini-stat-icon" style={{ color: 'var(--warning)' }}>
+            <Icon name="alert-triangle" size={16} />
+          </span>
+          <div className="dashboard-mini-stat-content">
+            <span className="dashboard-mini-stat-value" style={{ color: 'var(--warning)' }}>
+              {severityCounts.High || 0}
+            </span>
+            <span className="dashboard-mini-stat-label">High</span>
+          </div>
+        </div>
+        <div className="dashboard-mini-stat">
+          <span className="dashboard-mini-stat-icon" style={{ color: 'var(--info)' }}>
+            <Icon name="info" size={16} />
+          </span>
+          <div className="dashboard-mini-stat-content">
+            <span className="dashboard-mini-stat-value" style={{ color: 'var(--info)' }}>
+              {(severityCounts.Medium || 0) + (severityCounts.Warning || 0)}
+            </span>
+            <span className="dashboard-mini-stat-label">Medium/Warning</span>
+          </div>
+        </div>
+        <div className="dashboard-compbar-actions">
+          <span className="dashboard-last-updated">
+            {paused ? 'Stream paused' : `${filteredThreats.length} of ${displayThreats.length} events`}
+          </span>
+        </div>
       </div>
 
       {/* Toolbar */}
@@ -122,7 +178,7 @@ export function ThreatPanel() {
           {SEVERITIES.map(sev => (
             <button
               key={sev}
-              className={`security-chip ${severityFilter === sev ? 'active' : ''}`}
+              className={`security-chip chip-danger ${severityFilter === sev ? 'active' : ''}`}
               onClick={() => setSeverityFilter(sev)}
               style={severityFilter === sev ? {
                 backgroundColor: getPriorityColor(sev),
@@ -187,9 +243,13 @@ export function ThreatPanel() {
           submessage="Try adjusting your search or filter criteria."
         />
       ) : (
-        <div className="threat-list">
-          {filteredThreats.map((threat) => (
-            <div key={threat.id} className={`threat-card ${(threat.priority || '').toLowerCase()}`}>
+        <div className="threat-list stagger-container" style={{ display: 'flex', flexDirection: 'column' }}>
+          {filteredThreats.map((threat, idx) => (
+            <div
+              key={threat.id}
+              className={`threat-card ${(threat.priority || '').toLowerCase()} gradient-border-card stagger-item`}
+              style={{ animationDelay: `${0.03 + idx * 0.04}s` }}
+            >
               <div className="threat-header">
                 <span className="priority-dot" style={{ backgroundColor: getPriorityColor(threat.priority) }} role="img" aria-label={threat.priority}></span>
                 <span className="priority">{threat.priority}</span>

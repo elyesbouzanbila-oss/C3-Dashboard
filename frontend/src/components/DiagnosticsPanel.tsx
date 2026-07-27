@@ -225,17 +225,54 @@ export function DiagnosticsPanel() {
     <div className="section diagnostics-section">
       <h2>Connectivity Diagnostics</h2>
 
+      {/* ── Stats bar ── */}
+      <div className="dashboard-compact-bar stagger-item" style={{ animationDelay: '0s' }}>
+        <div className="dashboard-mini-stat">
+          <span className="dashboard-mini-stat-icon" style={{ color: 'var(--info)' }}>
+            <Icon name="box" size={16} />
+          </span>
+          <div className="dashboard-mini-stat-content">
+            <span className="dashboard-mini-stat-value" style={{ color: 'var(--info)' }}>{pods.length}</span>
+            <span className="dashboard-mini-stat-label">Available Pods</span>
+          </div>
+        </div>
+        <div className="dashboard-mini-stat">
+          <span className="dashboard-mini-stat-icon" style={{ color: 'var(--primary)' }}>
+            <Icon name="zap" size={16} />
+          </span>
+          <div className="dashboard-mini-stat-content">
+            <span className="dashboard-mini-stat-value" style={{ color: 'var(--primary)' }}>{uniqueNamespaces.length}</span>
+            <span className="dashboard-mini-stat-label">Namespaces</span>
+          </div>
+        </div>
+        <div className="dashboard-mini-stat">
+          <span className="dashboard-mini-stat-icon" style={{ color: 'var(--success)' }}>
+            <Icon name="play" size={16} />
+          </span>
+          <div className="dashboard-mini-stat-content">
+            <span className="dashboard-mini-stat-value" style={{ color: 'var(--success)' }}>{logs.length}</span>
+            <span className="dashboard-mini-stat-label">Tests Run</span>
+          </div>
+        </div>
+        <div className="dashboard-compbar-actions">
+          <span className="dashboard-last-updated">
+            <Icon name="activity" size={14} />
+            {targetType === 'pod' ? 'Pod-to-Pod' : 'Pod-to-Service'} testing
+          </span>
+        </div>
+      </div>
+
       <div className="diagnostics-layout">
         {/* Left column: Form */}
         <div className="diagnostics-form">
-          <div className="dashboard-card dashboard-card-wide" style={{ display: 'block', marginBottom: '16px' }}>
+          <div className="dashboard-card dashboard-card-wide gradient-border-card" style={{ display: 'block' }}>
             <div className="dashboard-card-header">
               <Icon name="play" size={16} className="card-header-icon" />
               <span>Test Configuration</span>
             </div>
 
             {/* Source */}
-            <div className="diagnostics-form-section">
+            <div className="diagnostics-form-section" style={{ marginBottom: '18px' }}>
               <h4 className="diagnostics-form-label">Source</h4>
               <div className="diagnostics-form-row">
                 <div className="diagnostics-form-field">
@@ -250,7 +287,7 @@ export function DiagnosticsPanel() {
                     ))}
                   </select>
                 </div>
-                <div className="diagnostics-form-field">
+                <div className="diagnostics-form-field" style={{ flex: 2 }}>
                   <label className="diagnostics-field-label">Pod</label>
                   <select
                     className="diagnostics-select"
@@ -267,21 +304,21 @@ export function DiagnosticsPanel() {
             </div>
 
             {/* Target */}
-            <div className="diagnostics-form-section">
+            <div className="diagnostics-form-section" style={{ marginBottom: '18px' }}>
               <h4 className="diagnostics-form-label">Target</h4>
               <div className="diagnostics-target-type">
                 <button
                   className={`security-chip ${targetType === 'pod' ? 'active' : ''}`}
                   onClick={() => setTargetType('pod')}
                 >
-                  <Icon name="pod" size={14} />
+                  <Icon name="box" size={14} />
                   Pod
                 </button>
                 <button
                   className={`security-chip ${targetType === 'service' ? 'active' : ''}`}
                   onClick={() => setTargetType('service')}
                 >
-                  <Icon name="network" size={14} />
+                  <Icon name="zap" size={14} />
                   Service
                 </button>
               </div>
@@ -324,7 +361,7 @@ export function DiagnosticsPanel() {
                 </div>
               </div>
               <div className="diagnostics-form-row">
-                <div className="diagnostics-form-field">
+                <div className="diagnostics-form-field" style={{ flex: 1 }}>
                   {targetType === 'pod' ? (
                     <>
                       <label className="diagnostics-field-label">Pod</label>
@@ -369,7 +406,7 @@ export function DiagnosticsPanel() {
             </div>
 
             <button
-              className="diagnostics-run-btn"
+              className="refresh-btn diagnostics-run-btn"
               onClick={handleRunTest}
               disabled={running}
             >
@@ -388,7 +425,7 @@ export function DiagnosticsPanel() {
           </div>
 
           {pods.length === 0 && (
-            <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', fontStyle: 'italic' }}>
+            <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', fontStyle: 'italic', marginTop: '12px' }}>
               No pods loaded. Some features may be limited.
             </p>
           )}
@@ -400,8 +437,13 @@ export function DiagnosticsPanel() {
             <div className="dashboard-card-header" style={{ marginBottom: 0 }}>
               <Icon name="activity" size={16} className="card-header-icon" />
               <span>Test Results</span>
+              {logs.length > 0 && (
+                <span className="dashboard-card-sub" style={{ padding: 0, marginTop: 0, marginLeft: '8px' }}>
+                  {logs.length} entries
+                </span>
+              )}
             </div>
-            <button className="refresh-btn" onClick={handleClearLogs} title="Clear log">
+            <button className="refresh-btn" onClick={handleClearLogs} title="Clear log" disabled={logs.length === 0}>
               <Icon name="trash-2" size={16} />
               <span>Clear</span>
             </button>
@@ -410,21 +452,214 @@ export function DiagnosticsPanel() {
           <div className="diagnostics-log-content">
             {logs.length === 0 ? (
               <div className="diagnostics-log-empty">
-                <Icon name="info" size={24} />
+                <Icon name="info" size={32} />
                 <span>Run a connectivity test to see results here.</span>
               </div>
             ) : (
-              logs.map(entry => (
-                <div key={entry.id} className={`diagnostics-log-entry diagnostics-log-${entry.type}`}>
-                  <span className="diagnostics-log-time">{logTimeFormatter(entry.timestamp)}</span>
-                  <span className="diagnostics-log-msg">{entry.message}</span>
-                </div>
-              ))
+              logs.map((entry, idx) => {
+                const typeClass = `diagnostics-log-${entry.type}`
+                return (
+                  <div
+                    key={entry.id}
+                    className={`diagnostics-log-entry ${typeClass} stagger-item`}
+                    style={{ animationDelay: `${idx * 0.03}s` }}
+                  >
+                    <span className="diagnostics-log-time">{logTimeFormatter(entry.timestamp)}</span>
+                    <span className="diagnostics-log-msg">{entry.message}</span>
+                  </div>
+                )
+              })
             )}
             <div ref={logEndRef} />
           </div>
         </div>
       </div>
+
+      {/* ── Scoped CSS ── */}
+      <style>{`
+        .diagnostics-section .dashboard-compact-bar {
+          margin-bottom: 20px;
+        }
+        .diagnostics-layout {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 20px;
+        }
+        .diagnostics-section .dashboard-card {
+          padding: 20px;
+        }
+
+        /* ── Form elements ── */
+        .diagnostics-form-label {
+          font-size: 11px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          color: var(--text-tertiary);
+          margin-bottom: 10px;
+          padding-bottom: 4px;
+          border-bottom: 1px solid var(--border);
+        }
+        .diagnostics-field-label {
+          font-size: 11px;
+          color: var(--text-secondary);
+          font-weight: 500;
+          display: block;
+          margin-bottom: 4px;
+        }
+        .diagnostics-form-row {
+          display: flex;
+          gap: 12px;
+          margin-bottom: 10px;
+        }
+        .diagnostics-form-row:last-child {
+          margin-bottom: 0;
+        }
+        .diagnostics-form-field {
+          flex: 1;
+        }
+        .diagnostics-target-type {
+          display: flex;
+          gap: 6px;
+          margin-bottom: 12px;
+        }
+        .diagnostics-select,
+        .diagnostics-input {
+          width: 100%;
+          padding: 8px 10px;
+          background-color: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius);
+          color: var(--text);
+          font-size: 13px;
+          font-family: inherit;
+          cursor: pointer;
+          transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .diagnostics-input {
+          cursor: text;
+        }
+        .diagnostics-select:focus,
+        .diagnostics-input:focus {
+          outline: none;
+          border-color: var(--primary);
+          box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
+        }
+        .diagnostics-run-btn {
+          width: 100%;
+          justify-content: center;
+          padding: 10px 16px;
+          font-size: 13px;
+          font-weight: 600;
+        }
+        .diagnostics-run-btn:not(:disabled) {
+          background-color: var(--primary);
+          color: #fff;
+          border-color: var(--primary);
+        }
+        .diagnostics-run-btn:not(:disabled):hover {
+          background-color: var(--primary-hover);
+          border-color: var(--primary-hover);
+        }
+
+        /* ── Log panel ── */
+        .diagnostics-log {
+          display: flex;
+          flex-direction: column;
+          background-color: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          overflow: hidden;
+        }
+        .diagnostics-log-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 14px 18px;
+          border-bottom: 1px solid var(--border);
+        }
+        .diagnostics-log-content {
+          flex: 1;
+          overflow-y: auto;
+          padding: 10px 0;
+          min-height: 300px;
+          max-height: 500px;
+        }
+        .diagnostics-log-content::-webkit-scrollbar {
+          width: 6px;
+        }
+        .diagnostics-log-content::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .diagnostics-log-content::-webkit-scrollbar-thumb {
+          background: var(--border);
+          border-radius: 3px;
+        }
+        .diagnostics-log-content::-webkit-scrollbar-thumb:hover {
+          background: var(--text-tertiary);
+        }
+        .diagnostics-log-empty {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+          padding: 60px 20px;
+          color: var(--text-tertiary);
+        }
+        .diagnostics-log-entry {
+          display: flex;
+          gap: 10px;
+          padding: 6px 18px;
+          font-size: 12px;
+          line-height: 1.5;
+          margin: 1px 0;
+          border-left: 2px solid var(--text-tertiary);
+          transition: background-color 0.15s ease;
+        }
+        .diagnostics-log-entry:hover {
+          background-color: rgba(255, 255, 255, 0.03);
+        }
+        .diagnostics-log-info {
+          color: var(--text-secondary);
+          border-left-color: var(--primary);
+        }
+        .diagnostics-log-success {
+          color: var(--success);
+          border-left-color: var(--success);
+        }
+        .diagnostics-log-error {
+          color: var(--danger);
+          border-left-color: var(--danger);
+        }
+        .diagnostics-log-command {
+          color: var(--primary);
+          border-left-color: var(--primary);
+          background-color: rgba(59, 130, 246, 0.04);
+          font-family: 'SF Mono', 'Courier New', monospace;
+        }
+        .diagnostics-log-command:hover {
+          background-color: rgba(59, 130, 246, 0.08);
+        }
+        .diagnostics-log-time {
+          flex-shrink: 0;
+          font-size: 11px;
+          color: var(--text-tertiary);
+          font-family: 'SF Mono', 'Courier New', monospace;
+          min-width: 64px;
+        }
+        .diagnostics-log-msg {
+          flex: 1;
+          min-width: 0;
+          word-break: break-word;
+        }
+
+        @media (max-width: 1024px) {
+          .diagnostics-layout {
+            grid-template-columns: 1fr;
+          }
+        }
+      `}</style>
     </div>
   )
 }
