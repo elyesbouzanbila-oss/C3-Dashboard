@@ -16,7 +16,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 
 # ── 0. Verify Docker is available on the worker ──────────────────
 echo ""
-echo "→ [0/6] Checking Docker on ${WORKER}..."
+echo "→ [1/7] Checking Docker on ${WORKER}..."
 ssh "${WORKER_USER}@${WORKER}" "docker info >/dev/null 2>&1" || {
   echo "✘ Docker not available on ${WORKER}. Install Docker first."
   exit 1
@@ -24,7 +24,7 @@ ssh "${WORKER_USER}@${WORKER}" "docker info >/dev/null 2>&1" || {
 
 # ── 1. Pull latest code on ALL nodes ─────────────────────────────
 echo ""
-echo "→ [1/6] Pulling latest code..."
+echo "→ [2/7] Pulling latest code..."
 git pull
 for N in workernode1 workernode2; do
   echo "   → Pulling on ${N}..."
@@ -33,7 +33,7 @@ done
 
 # ── 2. Ensure K8s secrets exist ──────────────────────────────────
 echo ""
-echo "→ [2/6] Ensuring K8s secrets..."
+echo "→ [3/7] Ensuring K8s secrets..."
 kubectl create secret generic dashboard-api-key \
   --namespace "${NAMESPACE}" \
   --from-literal=api-key='your-secret-key' \
@@ -41,7 +41,7 @@ kubectl create secret generic dashboard-api-key \
 
 # ── 3. Build images on the worker node ───────────────────────────
 echo ""
-echo "→ [3/6] Building images on ${WORKER}..."
+echo "→ [4/7] Building images on ${WORKER}..."
 ssh -t "${WORKER_USER}@${WORKER}" \
   "cd ~/k8s-cluster-dashboard && \
    docker build --no-cache -t dashboard-frontend:latest ./frontend && \
@@ -49,7 +49,7 @@ ssh -t "${WORKER_USER}@${WORKER}" \
 
 # ── 4. Save & transfer images to all other nodes ─────────────────
 echo ""
-echo "→ [4/6] Saving images on ${WORKER}..."
+echo "→ [5/7] Saving & distributing images..."
 ssh "${WORKER_USER}@${WORKER}" \
   "docker save dashboard-frontend:latest | gzip > /tmp/frontend.tar.gz && \
    docker save dashboard-backend:latest | gzip > /tmp/backend.tar.gz"
@@ -67,12 +67,12 @@ done
 
 # ── 5. Apply updated manifests ──────────────────────────────────
 echo ""
-echo "→ [5/6] Applying manifests..."
+echo "→ [6/7] Applying manifests..."
 kubectl apply -k k8s/
 
 # ── 6. Roll pods to use the new images ───────────────────────────
 echo ""
-echo "→ [6/6] Rolling pods..."
+echo "→ [7/7] Rolling pods..."
 kubectl rollout restart deployment/dashboard-frontend -n "${NAMESPACE}"
 kubectl rollout restart deployment/dashboard-backend -n "${NAMESPACE}"
 kubectl rollout status deployment/dashboard-frontend -n "${NAMESPACE}" --timeout=120s
