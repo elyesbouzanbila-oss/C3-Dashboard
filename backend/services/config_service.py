@@ -42,21 +42,26 @@ async def create_ip_pool(api_client, pool_data: Dict[str, Any]) -> Dict[str, Any
 
 async def update_ip_pool(api_client, name: str, pool_data: Dict[str, Any]) -> Dict[str, Any]:
     custom_api = k8s_client.CustomObjectsApi(api_client)
-    current = await custom_api.get_cluster_custom_object(
-        group=CALICO_GROUP, version=CALICO_VERSION, plural="ippools", name=name
-    )
-    spec = current.get("spec", {})
-    if "nat_outgoing" in pool_data: spec["natOutgoing"] = pool_data["nat_outgoing"]
-    if "disabled" in pool_data: spec["disabled"] = pool_data["disabled"]
+    # Use a JSON Patch array: the client's default content type for
+    # patch_cluster_custom_object is application/json-patch+json, which the
+    # Calico API server decodes as a JSON Patch operation list. (Sending a
+    # plain object here yields 400 "cannot unmarshal object into Go value of
+    # type []handlers.jsonPatchOp".) RFC 6902 "add" on an existing member
+    # replaces its value, so it works whether the field is present or not.
+    ops: list = []
+    if "nat_outgoing" in pool_data:
+        ops.append({"op": "add", "path": "/spec/natOutgoing", "value": bool(pool_data["nat_outgoing"])})
+    if "disabled" in pool_data:
+        ops.append({"op": "add", "path": "/spec/disabled", "value": bool(pool_data["disabled"])})
     if "mode" in pool_data:
-        spec["ipipMode"] = _resolve_encap_mode(pool_data["mode"], "ipip")
-        spec["vxlanMode"] = _resolve_encap_mode(pool_data["mode"], "vxlan")
-    if "node_selector" in pool_data: spec["nodeSelector"] = pool_data["node_selector"]
-    # Explicit merge-patch content type: the client's default (application/json-patch+json)
-    # makes the API server expect a JSON Patch array, but we send a partial object.
+        ops.append({"op": "add", "path": "/spec/ipipMode", "value": _resolve_encap_mode(pool_data["mode"], "ipip")})
+        ops.append({"op": "add", "path": "/spec/vxlanMode", "value": _resolve_encap_mode(pool_data["mode"], "vxlan")})
+    if "node_selector" in pool_data:
+        ops.append({"op": "add", "path": "/spec/nodeSelector", "value": pool_data["node_selector"]})
+    if not ops:
+        raise ValueError("No fields to update")
     return await custom_api.patch_cluster_custom_object(
-        group=CALICO_GROUP, version=CALICO_VERSION, plural="ippools", name=name,
-        body={"spec": spec}, content_type="application/merge-patch+json"
+        group=CALICO_GROUP, version=CALICO_VERSION, plural="ippools", name=name, body=ops
     )
 
 
@@ -89,15 +94,21 @@ async def create_bgp_peer(api_client, peer_data: Dict[str, Any]) -> Dict[str, An
 
 async def update_bgp_peer(api_client, name: str, peer_data: Dict[str, Any]) -> Dict[str, Any]:
     custom_api = k8s_client.CustomObjectsApi(api_client)
-    spec: Dict[str, Any] = {}
-    if "peer_ip" in peer_data: spec["peerIP"] = peer_data["peer_ip"]
-    if "peer_as_number" in peer_data: spec["asNumber"] = peer_data["peer_as_number"]
-    if "node_as_number" in peer_data: spec["nodeASNumber"] = peer_data["node_as_number"]
-    if "node" in peer_data: spec["node"] = peer_data["node"]
-    # Explicit merge-patch content type: see update_ip_pool for the rationale.
+    # JSON Patch array — same rationale as update_ip_pool: the client's default
+    # content type is application/json-patch+json, so the body must be an op list.
+    ops: list = []
+    if "peer_ip" in peer_data:
+        ops.append({"op": "add", "path": "/spec/peerIP", "value": peer_data["peer_ip"]})
+    if "peer_as_number" in peer_data:
+        ops.append({"op": "add", "path": "/spec/asNumber", "value": peer_data["peer_as_number"]})
+    if "node_as_number" in peer_data:
+        ops.append({"op": "add", "path": "/spec/nodeASNumber", "value": peer_data["node_as_number"]})
+    if "node" in peer_data:
+        ops.append({"op": "add", "path": "/spec/node", "value": peer_data["node"]})
+    if not ops:
+        raise ValueError("No fields to update")
     return await custom_api.patch_cluster_custom_object(
-        group=CALICO_GROUP, version=CALICO_VERSION, plural="bgppeers", name=name,
-        body={"spec": spec}, content_type="application/merge-patch+json"
+        group=CALICO_GROUP, version=CALICO_VERSION, plural="bgppeers", name=name, body=ops
     )
 
 
