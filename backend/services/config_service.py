@@ -213,6 +213,16 @@ async def create_secret(api_client, secret_data: Dict[str, Any]) -> Dict[str, An
     return await v1.create_namespaced_secret(namespace=secret_data["namespace"], body=body)
 
 
+async def update_secret(api_client, namespace: str, name: str, secret_data: Dict[str, Any]) -> Dict[str, Any]:
+    v1 = k8s_client.CoreV1Api(api_client)
+    patch: Dict[str, Any] = {}
+    if "type" in secret_data and secret_data.get("type"):
+        patch["type"] = secret_data["type"]
+    if "data" in secret_data and secret_data.get("data") is not None:
+        patch["data"] = secret_data["data"]
+    return await v1.patch_namespaced_secret(name=name, namespace=namespace, body=patch)
+
+
 async def delete_secret(api_client, namespace: str, name: str) -> None:
     v1 = k8s_client.CoreV1Api(api_client)
     await v1.delete_namespaced_secret(name=name, namespace=namespace)
@@ -220,6 +230,27 @@ async def delete_secret(api_client, namespace: str, name: str) -> None:
 
 
 # ─── Deployments ─────────────────────────────────────────────────
+
+
+async def create_deployment(api_client, dep_data: Dict[str, Any]) -> Dict[str, Any]:
+    apps_v1 = k8s_client.AppsV1Api(api_client)
+    name = dep_data["name"]
+    namespace = dep_data["namespace"]
+    app_label = dep_data.get("app_label") or name
+    body = {
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "metadata": {"name": name, "namespace": namespace, "labels": {"app": app_label}},
+        "spec": {
+            "replicas": dep_data.get("replicas", 1),
+            "selector": {"matchLabels": {"app": app_label}},
+            "template": {
+                "metadata": {"labels": {"app": app_label}},
+                "spec": {"containers": [{"name": name, "image": dep_data["image"]}]},
+            },
+        },
+    }
+    return await apps_v1.create_namespaced_deployment(namespace=namespace, body=body)
 
 
 async def scale_deployment(api_client, namespace: str, name: str, replicas: int) -> Dict[str, Any]:
@@ -232,6 +263,23 @@ async def restart_deployment(api_client, namespace: str, name: str) -> Dict[str,
     apps_v1 = k8s_client.AppsV1Api(api_client)
     # Trigger a rolling restart by patching annotations
     body = {"spec": {"template": {"metadata": {"annotations": {"kubectl.kubernetes.io/restartedAt": datetime.utcnow().isoformat() + "Z"}}}}}
+    return await apps_v1.patch_namespaced_deployment(name=name, namespace=namespace, body=body)
+
+
+async def update_deployment_image(api_client, namespace: str, name: str, image: str) -> Dict[str, Any]:
+    apps_v1 = k8s_client.AppsV1Api(api_client)
+    dep = await apps_v1.read_namespaced_deployment(name=name, namespace=namespace)
+    containers = dep.spec.template.spec.containers
+    if not containers:
+        raise ValueError("Deployment has no containers")
+    # Patch the first container's image (typical single-container case)
+    body = {
+        "spec": {
+            "template": {
+                "spec": {"containers": [{"name": containers[0].name, "image": image}]}
+            }
+        }
+    }
     return await apps_v1.patch_namespaced_deployment(name=name, namespace=namespace, body=body)
 
 

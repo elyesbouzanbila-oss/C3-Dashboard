@@ -61,6 +61,41 @@ async function writeResource(path: string, method: string, body: unknown): Promi
 }
 
 // ═══════════════════════════════════════════════════════════════════
+//  Form helpers
+// ═══════════════════════════════════════════════════════════════════
+
+/** UTF-8-safe base64 decode (handles non-ASCII secret values like PEM certs). */
+function decodeB64(s: string): string {
+  try {
+    const bin = atob(s)
+    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0))
+    return new TextDecoder().decode(bytes)
+  } catch { return s }
+}
+/** UTF-8-safe base64 encode (handles non-ASCII secret values like PEM certs). */
+function encodeB64(s: string): string {
+  try {
+    const bytes = new TextEncoder().encode(s)
+    let bin = ''
+    bytes.forEach(b => { bin += String.fromCharCode(b) })
+    return btoa(bin)
+  } catch { return s }
+}
+
+/** Parse "key=value" lines from a textarea into a dict. */
+function parseDataLines(text: string): { data: Record<string, string>; error?: string } {
+  const data: Record<string, string> = {}
+  for (const line of text.split('\n')) {
+    const t = line.trim()
+    if (!t) continue
+    const idx = t.indexOf('=')
+    if (idx <= 0) return { data, error: `Invalid line: "${line}" (expected key=value)` }
+    data[t.slice(0, idx).trim()] = t.slice(idx + 1)
+  }
+  return { data }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 //  Color helpers
 // ═══════════════════════════════════════════════════════════════════
 
@@ -109,7 +144,7 @@ function ConfigSection({ title, icon, iconColor, expanded, onToggle, addLabel, o
 // ═══════════════════════════════════════════════════════════════════
 
 export function ClusterConfigPanel() {
-  const { ipPools, bgpPeers, ipPoolsStatus } = useDashboard()
+  const { ipPools, bgpPeers } = useDashboard()
 
   // ── Super user state ──────────────────────────────────────────
   const [showAuth, setShowAuth] = useState(false)
@@ -214,14 +249,72 @@ export function ClusterConfigPanel() {
 
   // ── Modal state ───────────────────────────────────────────────
   const [modal, setModal] = useState<{ type: string; data?: any; editing?: boolean } | null>(null)
+  const [form, setForm] = useState<Record<string, any>>({})
   const [saving, setSaving] = useState(false)
   const [modalError, setModalError] = useState<string | null>(null)
+
+  const closeModal = useCallback(() => { setModal(null); setModalError(null); setForm({}) }, [])
 
   const openModal = useCallback((type: string, data?: any) => {
     setModal({ type, data, editing: !!data })
     setModalError(null)
+
+    if (type === 'ippool') {
+      setForm({
+        name: data?.name || '',
+        cidr: data?.cidr || '',
+        mode: data?.mode || 'vxlan',
+        nat_outgoing: data?.nat_outgoing ?? true,
+        disabled: data?.disabled ?? false,
+        node_selector: data?.node_selector || 'all()',
+      })
+    } else if (type === 'bgppeer') {
+      setForm({
+        name: data?.name || '',
+        peer_ip: data?.peer_ip || '',
+        peer_as_number: data?.peer_as_number ?? 64512,
+        node_as_number: data?.node_as_number ?? '',
+        node: data?.node || '',
+      })
+    } else if (type === 'configmap') {
+      setForm({ name: data?.name || '', namespace: data?.namespace || 'default', dataLines: '' })
+      if (data) {
+        // Fetch full detail (with values) for editing
+        fetch(`${API_BASE_URL}/api/config/configmaps/${data.namespace}/${data.name}`)
+          .then(r => r.json())
+          .then(d => {
+            const obj = d?.data?.data || {}
+            setForm(f => ({
+              ...f,
+              dataLines: Object.entries(obj).map(([k, v]) => `${k}=${v}`).join('\n'),
+            }))
+          })
+          .catch(() => {})
+      }
+    } else if (type === 'secret') {
+      setForm({ name: data?.name || '', namespace: data?.namespace || 'default', secretType: data?.type || 'Opaque', dataLines: '' })
+      if (data) {
+        fetch(`${API_BASE_URL}/api/config/secrets/${data.namespace}/${data.name}`)
+          .then(r => r.json())
+          .then(d => {
+            const obj = d?.data?.data || {}
+            setForm(f => ({
+              ...f,
+              secretType: d?.data?.type || f.secretType,
+              dataLines: Object.entries(obj).map(([k, v]) => `${k}=${decodeB64(String(v))}`).join('\n'),
+            }))
+          })
+          .catch(() => {})
+      }
+    } else if (type === 'deployment') {
+      setForm({
+        name: data?.name || '',
+        namespace: data?.namespace || 'default',
+        replicas: data?.replicas ?? 1,
+        image: data?.image || '',
+      })
+    }
   }, [])
-  const closeModal = useCallback(() => { setModal(null); setModalError(null) }, [])
 
   // ── Write actions wrapped in auth ─────────────────────────────
   const withAuth = useCallback((fn: () => Promise<string | null>, onSuccess: () => void) => {
@@ -241,6 +334,8 @@ export function ClusterConfigPanel() {
   // ── Namespace form state ──────────────────────────────────────
   const [nsName, setNsName] = useState('')
 
+  const namespaceNames = useMemo(() => namespaces.map(n => n.name), [namespaces])
+
   const renderModal = () => {
     if (!modal) return null
     const { type, data, editing } = modal
@@ -248,12 +343,156 @@ export function ClusterConfigPanel() {
     const close = () => { closeModal(); if (type === 'namespace') setNsName('') }
 
     const renderForm = () => {
+      const upd = (patch: Record<string, any>) => setForm(f => ({ ...f, ...patch }))
+
       switch (type) {
         case 'namespace': return (
           <div className="config-form-group">
             <label className="config-form-label">Namespace Name</label>
             <input className="config-form-input" value={nsName} onChange={e => setNsName(e.target.value)} placeholder="e.g. my-app" autoFocus />
           </div>
+        )
+        case 'ippool': return (
+          <>
+            <div className="config-form-group">
+              <label className="config-form-label">Name</label>
+              <input className="config-form-input" value={form.name || ''} onChange={e => upd({ name: e.target.value })} placeholder="e.g. pool-prod" disabled={!!editing} autoFocus />
+            </div>
+            <div className="config-form-group">
+              <label className="config-form-label">CIDR</label>
+              <input className="config-form-input" value={form.cidr || ''} onChange={e => upd({ cidr: e.target.value })} placeholder="e.g. 10.244.0.0/16" disabled={!!editing} />
+            </div>
+            <div className="config-form-group">
+              <label className="config-form-label">Encapsulation Mode</label>
+              <select className="config-form-input" value={form.mode || 'vxlan'} onChange={e => upd({ mode: e.target.value })}>
+                <option value="vxlan">VXLAN</option>
+                <option value="ipip">IPIP</option>
+                <option value="none">None (BGP only)</option>
+              </select>
+            </div>
+            <div className="config-form-checkbox-row">
+              <label className="config-form-checkbox">
+                <input type="checkbox" checked={!!form.nat_outgoing} onChange={e => upd({ nat_outgoing: e.target.checked })} />
+                NAT outgoing
+              </label>
+              <label className="config-form-checkbox">
+                <input type="checkbox" checked={!!form.disabled} onChange={e => upd({ disabled: e.target.checked })} />
+                Disabled
+              </label>
+            </div>
+            <div className="config-form-group">
+              <label className="config-form-label">Node Selector</label>
+              <input className="config-form-input" value={form.node_selector || 'all()'} onChange={e => upd({ node_selector: e.target.value })} placeholder="all()" />
+            </div>
+          </>
+        )
+        case 'bgppeer': return (
+          <>
+            <div className="config-form-group">
+              <label className="config-form-label">Name</label>
+              <input className="config-form-input" value={form.name || ''} onChange={e => upd({ name: e.target.value })} placeholder="e.g. peer-rack-1" disabled={!!editing} autoFocus />
+            </div>
+            <div className="config-form-group">
+              <label className="config-form-label">Peer IP</label>
+              <input className="config-form-input" value={form.peer_ip || ''} onChange={e => upd({ peer_ip: e.target.value })} placeholder="e.g. 192.168.1.254" />
+            </div>
+            <div className="config-form-group">
+              <label className="config-form-label">Peer AS Number</label>
+              <input className="config-form-input" type="number" value={form.peer_as_number ?? 64512} onChange={e => upd({ peer_as_number: Number(e.target.value) })} />
+            </div>
+            <div className="config-form-group">
+              <label className="config-form-label">Node AS Number (optional)</label>
+              <input className="config-form-input" type="number" value={form.node_as_number ?? ''} onChange={e => upd({ node_as_number: e.target.value })}
+                placeholder={form.node_as_number ? String(form.node_as_number) : 'Inherit from node'} />
+            </div>
+            <div className="config-form-group">
+              <label className="config-form-label">Node (optional)</label>
+              <input className="config-form-input" value={form.node || ''} onChange={e => upd({ node: e.target.value })} placeholder="e.g. worker-1 (blank = global)" />
+            </div>
+          </>
+        )
+        case 'configmap': return (
+          <>
+            <div className="config-form-row">
+              <div className="config-form-group config-form-grow">
+                <label className="config-form-label">Name</label>
+                <input className="config-form-input" value={form.name || ''} onChange={e => upd({ name: e.target.value })} placeholder="e.g. app-config" disabled={!!editing} autoFocus />
+              </div>
+              <div className="config-form-group config-form-grow">
+                <label className="config-form-label">Namespace</label>
+                <input className="config-form-input" list="config-ns-list" value={form.namespace || 'default'} onChange={e => upd({ namespace: e.target.value })} disabled={!!editing} />
+              </div>
+            </div>
+            <datalist id="config-ns-list">{namespaceNames.map(n => <option key={n} value={n} />)}</datalist>
+            <div className="config-form-group">
+              <label className="config-form-label">Data (one <code>key=value</code> per line)</label>
+              <textarea className="config-form-input config-form-textarea" rows={10} value={form.dataLines || ''} onChange={e => upd({ dataLines: e.target.value })}
+                placeholder={'KEY=value\nfeatureFlag=true\nmaxRetries=3'} spellCheck={false} />
+            </div>
+          </>
+        )
+        case 'secret': return (
+          <>
+            <div className="config-form-row">
+              <div className="config-form-group config-form-grow">
+                <label className="config-form-label">Name</label>
+                <input className="config-form-input" value={form.name || ''} onChange={e => upd({ name: e.target.value })} placeholder="e.g. db-credentials" disabled={!!editing} autoFocus />
+              </div>
+              <div className="config-form-group config-form-grow">
+                <label className="config-form-label">Namespace</label>
+                <input className="config-form-input" list="config-ns-list" value={form.namespace || 'default'} onChange={e => upd({ namespace: e.target.value })} disabled={!!editing} />
+              </div>
+            </div>
+            <datalist id="config-ns-list">{namespaceNames.map(n => <option key={n} value={n} />)}</datalist>
+            <div className="config-form-group">
+              <label className="config-form-label">Type</label>
+              <select className="config-form-input" value={form.secretType || 'Opaque'} onChange={e => upd({ secretType: e.target.value })}>
+                <option value="Opaque">Opaque</option>
+                <option value="kubernetes.io/tls">TLS</option>
+                <option value="kubernetes.io/basic-auth">Basic Auth</option>
+                <option value="kubernetes.io/dockerconfigjson">Docker Config</option>
+                <option value="kubernetes.io/ssh-auth">SSH Auth</option>
+              </select>
+            </div>
+            <div className="config-form-group">
+              <label className="config-form-label">Data (one <code>key=value</code> per line, base64-encoded automatically)</label>
+              <textarea className="config-form-input config-form-textarea" rows={8} value={form.dataLines || ''} onChange={e => upd({ dataLines: e.target.value })}
+                placeholder={'username=admin\npassword=s3cret'} spellCheck={false} />
+              <div className="config-form-hint" style={{ marginTop: 8 }}>
+                Values are base64-encoded on save. For multi-line values (e.g. PEM certificates), paste the value in a single line — the encoder handles it.
+              </div>
+            </div>
+          </>
+        )
+        case 'deployment': return (
+          <>
+            <div className="config-form-row">
+              <div className="config-form-group config-form-grow">
+                <label className="config-form-label">Name</label>
+                <input className="config-form-input" value={form.name || ''} onChange={e => upd({ name: e.target.value })} placeholder="e.g. api-server" disabled={!!editing} autoFocus />
+              </div>
+              <div className="config-form-group config-form-grow">
+                <label className="config-form-label">Namespace</label>
+                <input className="config-form-input" list="config-ns-list" value={form.namespace || 'default'} onChange={e => upd({ namespace: e.target.value })} disabled={!!editing} />
+              </div>
+            </div>
+            <datalist id="config-ns-list">{namespaceNames.map(n => <option key={n} value={n} />)}</datalist>
+            <div className="config-form-row">
+              <div className="config-form-group config-form-grow">
+                <label className="config-form-label">Image</label>
+                <input className="config-form-input" value={form.image || ''} onChange={e => upd({ image: e.target.value })} placeholder="e.g. nginx:1.27" />
+              </div>
+              <div className="config-form-group config-form-grow">
+                <label className="config-form-label">Replicas</label>
+                <input className="config-form-input" type="number" min={0} value={form.replicas ?? 1} onChange={e => upd({ replicas: Number(e.target.value) })} disabled={!!editing} />
+              </div>
+            </div>
+            {editing && (
+              <div className="config-form-hint">
+                Editing updates the container image. To change replica count, use the <strong>Scale</strong> action in the table.
+              </div>
+            )}
+          </>
         )
         default: return null
       }
@@ -266,6 +505,73 @@ export function ClusterConfigPanel() {
           if (!nsName.trim()) { setModalError('Name is required'); return }
           path = '/api/config/namespaces'; method = 'POST'; body = { name: nsName.trim() }
           break
+        case 'ippool': {
+          if (!form.name?.trim() || !form.cidr?.trim()) { setModalError('Name and CIDR are required'); return }
+          if (editing) {
+            path = `/api/config/ippools/${encodeURIComponent(form.name)}`; method = 'PUT'
+            body = { nat_outgoing: !!form.nat_outgoing, disabled: !!form.disabled, mode: form.mode, node_selector: form.node_selector }
+          } else {
+            path = '/api/config/ippools'; method = 'POST'
+            body = { name: form.name.trim(), cidr: form.cidr.trim(), mode: form.mode, nat_outgoing: !!form.nat_outgoing, disabled: !!form.disabled, node_selector: form.node_selector }
+          }
+          break
+        }
+        case 'bgppeer': {
+          if (!form.name?.trim() || !form.peer_ip?.trim()) { setModalError('Name and Peer IP are required'); return }
+          const bodyPartial: any = {
+            peer_ip: form.peer_ip.trim(),
+            peer_as_number: Number(form.peer_as_number) || 64512,
+          }
+          if (form.node_as_number !== undefined && form.node_as_number !== null && form.node_as_number !== '') bodyPartial.node_as_number = Number(form.node_as_number)
+          if (form.node?.trim()) bodyPartial.node = form.node.trim()
+          if (editing) {
+            path = `/api/config/bgppeers/${encodeURIComponent(form.name)}`; method = 'PUT'
+          } else {
+            path = '/api/config/bgppeers'; method = 'POST'
+            bodyPartial.name = form.name.trim()
+          }
+          body = bodyPartial
+          break
+        }
+        case 'configmap': {
+          const { data: kv, error } = parseDataLines(form.dataLines || '')
+          if (error) { setModalError(error); return }
+          if (editing) {
+            path = `/api/config/configmaps/${form.namespace}/${form.name}`; method = 'PUT'; body = { data: kv }
+          } else {
+            if (!form.name?.trim()) { setModalError('Name is required'); return }
+            path = '/api/config/configmaps'; method = 'POST'
+            body = { name: form.name.trim(), namespace: form.namespace?.trim() || 'default', data: kv }
+          }
+          break
+        }
+        case 'secret': {
+          const { data: kv, error } = parseDataLines(form.dataLines || '')
+          if (error) { setModalError(error); return }
+          const encoded = Object.fromEntries(Object.entries(kv).map(([k, v]) => [k, encodeB64(v)]))
+          if (editing) {
+            path = `/api/config/secrets/${form.namespace}/${form.name}`; method = 'PUT'
+            body = { type: form.secretType || 'Opaque', data: encoded }
+          } else {
+            if (!form.name?.trim()) { setModalError('Name is required'); return }
+            path = '/api/config/secrets'; method = 'POST'
+            body = { name: form.name.trim(), namespace: form.namespace?.trim() || 'default', type: form.secretType || 'Opaque', data: encoded }
+          }
+          break
+        }
+        case 'deployment': {
+          if (editing) {
+            if (!form.image?.trim()) { setModalError('Image is required'); return }
+            path = `/api/config/deployments/${form.namespace}/${form.name}/image`; method = 'PUT'; body = { image: form.image.trim() }
+          } else {
+            if (!form.name?.trim() || !form.image?.trim()) { setModalError('Name and image are required'); return }
+            path = '/api/config/deployments'; method = 'POST'
+            const replicasRaw = String(form.replicas ?? '').trim()
+            const parsedReplicas = Number(replicasRaw)
+            body = { name: form.name.trim(), namespace: form.namespace?.trim() || 'default', replicas: replicasRaw !== '' && Number.isFinite(parsedReplicas) ? parsedReplicas : 1, image: form.image.trim() }
+          }
+          break
+        }
       }
       withAuth(() => writeResource(path, method, body), () => {
         if (type === 'namespace') setNsName('')
@@ -273,14 +579,15 @@ export function ClusterConfigPanel() {
     }
 
     const titles: Record<string, string> = {
-      namespace: 'Create Namespace',
+      namespace: 'Namespace', ippool: 'IP Pool', bgppeer: 'BGP Peer',
+      configmap: 'ConfigMap', secret: 'Secret', deployment: 'Deployment',
     }
 
     return (
       <div className="config-modal-overlay" onClick={close}>
         <div className="config-modal" onClick={e => e.stopPropagation()}>
           <div className="config-modal-header">
-            <h3>{titles[type] || 'Action'}</h3>
+            <h3>{titles[type] || 'Action'} — {editing ? 'Edit' : 'Create'}</h3>
             <button className="refresh-btn" onClick={close} style={{ padding: '4px 8px' }}><Icon name="x" size={16} /></button>
           </div>
           <div className="config-modal-body">
@@ -289,7 +596,7 @@ export function ClusterConfigPanel() {
             <div className="config-modal-actions">
               <button className="refresh-btn" onClick={close}>Cancel</button>
               <button className="refresh-btn" onClick={handleSave} disabled={saving} style={{ backgroundColor: 'var(--primary)', color: '#fff', borderColor: 'var(--primary)' }}>
-                {saving ? 'Saving...' : 'Create'}
+                {saving ? 'Saving...' : (editing ? 'Save' : 'Create')}
               </button>
             </div>
           </div>
@@ -402,18 +709,28 @@ export function ClusterConfigPanel() {
       {/* ═══════════════════════════════════════════════════════════ */}
       {/*  IP Pools */}
       {/* ═══════════════════════════════════════════════════════════ */}
-      <ConfigSection title="IP Pools" icon="hard-drive" iconColor="var(--primary)" expanded={sections.ippools} onToggle={() => toggleSection('ippools')}>
+      <ConfigSection title="IP Pools" icon="hard-drive" iconColor="var(--primary)" expanded={sections.ippools} onToggle={() => toggleSection('ippools')}
+        addLabel="Create" onAdd={() => requireAuth(() => openModal('ippool'))}>
         {ipPools.length === 0 ? (
-          <EmptyState icon={<Icon name="hard-drive" size={32} />} message="No IP pools" submessage="" />
+          <EmptyState icon={<Icon name="hard-drive" size={32} />} message="No IP pools" submessage="Click Create to add a pool" />
         ) : (
           <div className="storage-table-wrapper">
-            <table className="storage-table"><thead><tr><th>Name</th><th>CIDR</th><th>Mode</th><th>NAT</th><th>Status</th></tr></thead>
+            <table className="storage-table"><thead><tr><th>Name</th><th>CIDR</th><th>Mode</th><th>NAT</th><th>Status</th><th>Actions</th></tr></thead>
               <tbody>{ipPools.map(p => (
                 <tr key={p.name}><td className="cell-mono"><span style={{ display:'flex',alignItems:'center',gap:6 }}><span style={{ width:8,height:8,borderRadius:'50%',backgroundColor:p.disabled?'var(--danger)':'var(--success)',display:'inline-block' }}/>{p.name}</span></td>
                   <td className="cell-mono">{p.cidr}</td>
                   <td><span className="badge badge-muted" style={{ color:MODE_COLORS[p.mode]||'var(--text-tertiary)',borderColor:MODE_COLORS[p.mode]||'var(--border)' }}>{p.mode.toUpperCase()}</span></td>
                   <td>{p.nat_outgoing ? <span className="badge badge-success">Enabled</span> : <span className="badge badge-muted">Disabled</span>}</td>
                   <td>{p.disabled ? <span className="badge badge-warning">Disabled</span> : <span className="badge badge-success">Active</span>}</td>
+                  <td>
+                    <div style={{display:'flex',gap:4}}>
+                      <button className="refresh-btn" onClick={() => openModal('ippool', p)} style={{ padding:'4px 8px' }} title="Edit IP pool"><Icon name="edit" size={14} /></button>
+                      <button className="refresh-btn" onClick={() => requireAuth(async () => {
+                        const err = await deleteResource(`/api/config/ippools/${p.name}`)
+                        if (err) alert(err); else loadAll()
+                      })} style={{ padding:'4px 8px',color:'var(--danger)' }} title="Delete IP pool"><Icon name="trash-2" size={14} /></button>
+                    </div>
+                  </td>
                 </tr>
               ))}</tbody>
             </table>
@@ -424,16 +741,26 @@ export function ClusterConfigPanel() {
       {/* ═══════════════════════════════════════════════════════════ */}
       {/*  BGP Peers */}
       {/* ═══════════════════════════════════════════════════════════ */}
-      <ConfigSection title="BGP Peers" icon="git-branch" iconColor="var(--info)" expanded={sections.bgppeers} onToggle={() => toggleSection('bgppeers')}>
+      <ConfigSection title="BGP Peers" icon="git-branch" iconColor="var(--info)" expanded={sections.bgppeers} onToggle={() => toggleSection('bgppeers')}
+        addLabel="Create" onAdd={() => requireAuth(() => openModal('bgppeer'))}>
         {bgpPeers.length === 0 ? (
-          <EmptyState icon={<Icon name="git-branch" size={32} />} message="No BGP peers" submessage="" />
+          <EmptyState icon={<Icon name="git-branch" size={32} />} message="No BGP peers" submessage="Click Create to add a peer" />
         ) : (
           <div className="storage-table-wrapper">
-            <table className="storage-table"><thead><tr><th>Name</th><th>Peer IP</th><th>Peer ASN</th><th>Node</th><th>Session</th></tr></thead>
+            <table className="storage-table"><thead><tr><th>Name</th><th>Peer IP</th><th>Peer ASN</th><th>Node</th><th>Session</th><th>Actions</th></tr></thead>
               <tbody>{bgpPeers.map(p => (
                 <tr key={p.name}><td className="cell-mono">{p.name}</td><td className="cell-mono">{p.peer_ip||'-'}</td><td className="cell-mono">{p.peer_as_number??'-'}</td>
                   <td className="cell-mono">{p.node||<span style={{color:'var(--text-tertiary)',fontStyle:'italic'}}>Global</span>}</td>
                   <td>{p.session_state==='up'?<span className="badge badge-success">UP</span>:p.session_state==='down'?<span className="badge badge-warning">DOWN</span>:<span className="badge badge-muted">{p.session_state||'unknown'}</span>}</td>
+                  <td>
+                    <div style={{display:'flex',gap:4}}>
+                      <button className="refresh-btn" onClick={() => openModal('bgppeer', p)} style={{ padding:'4px 8px' }} title="Edit BGP peer"><Icon name="edit" size={14} /></button>
+                      <button className="refresh-btn" onClick={() => requireAuth(async () => {
+                        const err = await deleteResource(`/api/config/bgppeers/${p.name}`)
+                        if (err) alert(err); else loadAll()
+                      })} style={{ padding:'4px 8px',color:'var(--danger)' }} title="Delete BGP peer"><Icon name="trash-2" size={14} /></button>
+                    </div>
+                  </td>
                 </tr>
               ))}</tbody>
             </table>
@@ -494,9 +821,10 @@ export function ClusterConfigPanel() {
       {/* ═══════════════════════════════════════════════════════════ */}
       {/*  ConfigMaps */}
       {/* ═══════════════════════════════════════════════════════════ */}
-      <ConfigSection title="ConfigMaps" icon="layers" iconColor="var(--warning)" expanded={sections.configmaps} onToggle={() => toggleSection('configmaps')}>
+      <ConfigSection title="ConfigMaps" icon="layers" iconColor="var(--warning)" expanded={sections.configmaps} onToggle={() => toggleSection('configmaps')}
+        addLabel="Create" onAdd={() => requireAuth(() => openModal('configmap'))}>
         {configMaps.length === 0 ? (
-          <EmptyState icon={<Icon name="layers" size={32} />} message="No ConfigMaps" submessage="" />
+          <EmptyState icon={<Icon name="layers" size={32} />} message="No ConfigMaps" submessage="Click Create to add one" />
         ) : (
           <div className="storage-table-wrapper">
             <table className="storage-table"><thead><tr><th>Name</th><th>Namespace</th><th>Keys</th><th>Actions</th></tr></thead>
@@ -504,10 +832,13 @@ export function ClusterConfigPanel() {
                 <tr key={`${cm.namespace}/${cm.name}`}><td className="cell-mono">{cm.name}</td><td className="cell-mono">{cm.namespace}</td>
                   <td className="cell-mono" style={{fontSize:11}}>{(cm.keys||[]).join(', ') || <span style={{color:'var(--text-tertiary)'}}>—</span>}</td>
                   <td>
-                    <button className="refresh-btn" onClick={() => requireAuth(async () => {
-                      const err = await deleteResource(`/api/config/configmaps/${cm.namespace}/${cm.name}`)
-                      if (err) alert(err); else loadAll()
-                    })} style={{ padding:'4px 8px',color:'var(--danger)' }} title="Delete ConfigMap"><Icon name="trash-2" size={14} /></button>
+                    <div style={{display:'flex',gap:4}}>
+                      <button className="refresh-btn" onClick={() => openModal('configmap', cm)} style={{ padding:'4px 8px' }} title="Edit ConfigMap"><Icon name="edit" size={14} /></button>
+                      <button className="refresh-btn" onClick={() => requireAuth(async () => {
+                        const err = await deleteResource(`/api/config/configmaps/${cm.namespace}/${cm.name}`)
+                        if (err) alert(err); else loadAll()
+                      })} style={{ padding:'4px 8px',color:'var(--danger)' }} title="Delete ConfigMap"><Icon name="trash-2" size={14} /></button>
+                    </div>
                   </td>
                 </tr>
               ))}</tbody>
@@ -519,9 +850,10 @@ export function ClusterConfigPanel() {
       {/* ═══════════════════════════════════════════════════════════ */}
       {/*  Secrets */}
       {/* ═══════════════════════════════════════════════════════════ */}
-      <ConfigSection title="Secrets" icon="lock" iconColor="var(--danger)" expanded={sections.secrets} onToggle={() => toggleSection('secrets')}>
+      <ConfigSection title="Secrets" icon="lock" iconColor="var(--danger)" expanded={sections.secrets} onToggle={() => toggleSection('secrets')}
+        addLabel="Create" onAdd={() => requireAuth(() => openModal('secret'))}>
         {secrets.length === 0 ? (
-          <EmptyState icon={<Icon name="lock" size={32} />} message="No Secrets" submessage="" />
+          <EmptyState icon={<Icon name="lock" size={32} />} message="No Secrets" submessage="Click Create to add one" />
         ) : (
           <div className="storage-table-wrapper">
             <table className="storage-table"><thead><tr><th>Name</th><th>Namespace</th><th>Type</th><th>Keys</th><th>Actions</th></tr></thead>
@@ -529,10 +861,13 @@ export function ClusterConfigPanel() {
                 <tr key={`${s.namespace}/${s.name}`}><td className="cell-mono">{s.name}</td><td className="cell-mono">{s.namespace}</td><td>{s.type}</td>
                   <td className="cell-mono" style={{fontSize:11}}>{(s.keys||[]).join(', ') || <span style={{color:'var(--text-tertiary)'}}>—</span>}</td>
                   <td>
-                    <button className="refresh-btn" onClick={() => requireAuth(async () => {
-                      const err = await deleteResource(`/api/config/secrets/${s.namespace}/${s.name}`)
-                      if (err) alert(err); else loadAll()
-                    })} style={{ padding:'4px 8px',color:'var(--danger)' }} title="Delete Secret"><Icon name="trash-2" size={14} /></button>
+                    <div style={{display:'flex',gap:4}}>
+                      <button className="refresh-btn" onClick={() => openModal('secret', s)} style={{ padding:'4px 8px' }} title="Edit Secret"><Icon name="edit" size={14} /></button>
+                      <button className="refresh-btn" onClick={() => requireAuth(async () => {
+                        const err = await deleteResource(`/api/config/secrets/${s.namespace}/${s.name}`)
+                        if (err) alert(err); else loadAll()
+                      })} style={{ padding:'4px 8px',color:'var(--danger)' }} title="Delete Secret"><Icon name="trash-2" size={14} /></button>
+                    </div>
                   </td>
                 </tr>
               ))}</tbody>
@@ -544,9 +879,10 @@ export function ClusterConfigPanel() {
       {/* ═══════════════════════════════════════════════════════════ */}
       {/*  Deployments */}
       {/* ═══════════════════════════════════════════════════════════ */}
-      <ConfigSection title="Deployments" icon="layers" iconColor="var(--warning)" expanded={sections.deployments} onToggle={() => toggleSection('deployments')}>
+      <ConfigSection title="Deployments" icon="layers" iconColor="var(--warning)" expanded={sections.deployments} onToggle={() => toggleSection('deployments')}
+        addLabel="Create" onAdd={() => requireAuth(() => openModal('deployment'))}>
         {deployments.length === 0 ? (
-          <EmptyState icon={<Icon name="layers" size={32} />} message="No deployments" submessage="" />
+          <EmptyState icon={<Icon name="layers" size={32} />} message="No deployments" submessage="Click Create to deploy a workload" />
         ) : (
           <div className="storage-table-wrapper">
             <table className="storage-table"><thead><tr><th>Name</th><th>Namespace</th><th>Replicas</th><th>Ready</th><th>Image</th><th>Actions</th></tr></thead>
@@ -557,6 +893,7 @@ export function ClusterConfigPanel() {
                   <td className="cell-mono" style={{fontSize:11,maxWidth:200,overflow:'hidden',textOverflow:'ellipsis'}}>{d.image||'-'}</td>
                   <td>
                     <div style={{display:'flex',gap:4}}>
+                      <button className="refresh-btn" onClick={() => openModal('deployment', d)} style={{ padding:'4px 8px' }} title="Edit image"><Icon name="edit" size={14} /></button>
                       <button className="refresh-btn" onClick={() => requireAuth(async () => {
                         const replicas = prompt('New replica count:', String(d.replicas))
                         if (!replicas) return
@@ -687,7 +1024,7 @@ export function ClusterConfigPanel() {
           border: 1px solid var(--border);
           border-radius: var(--radius-lg);
           width: 90%;
-          max-width: 520px;
+          max-width: 560px;
           max-height: 90vh;
           overflow-y: auto;
           box-shadow: 0 16px 48px rgba(0,0,0,0.5);
@@ -702,10 +1039,22 @@ export function ClusterConfigPanel() {
         .config-modal-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:20px; padding-top:16px; border-top:1px solid var(--border); }
         .config-form-group { margin-bottom:14px; }
         .config-form-label { display:block; font-size:11px; font-weight:600; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.4px; margin-bottom:6px; }
+        .config-form-label code { color: var(--primary); background: rgba(59,130,246,0.1); padding: 1px 4px; border-radius: 3px; font-size: 10px; }
         .config-form-input { width:100%; padding:9px 12px; background-color:var(--bg); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); font-size:13px; font-family:inherit; transition:border-color 0.2s ease, box-shadow 0.2s ease; }
         .config-form-input:focus { outline:none; border-color:var(--primary); box-shadow:0 0 0 1px rgba(59,130,246,0.3); }
+        .config-form-input:disabled { opacity: 0.55; cursor: not-allowed; }
+        .config-form-textarea { resize: vertical; min-height: 90px; font-family: 'SF Mono', 'Courier New', monospace; font-size: 12px; line-height: 1.5; }
+        .config-form-row { display: flex; gap: 12px; }
+        .config-form-grow { flex: 1; }
+        .config-form-checkbox-row { display: flex; gap: 24px; margin-bottom: 14px; }
+        .config-form-checkbox { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-secondary); cursor: pointer; }
+        .config-form-checkbox input { accent-color: var(--primary); }
+        .config-form-hint { background: rgba(59,130,246,0.06); border: 1px solid rgba(59,130,246,0.15); border-radius: var(--radius); padding: 9px 12px; font-size: 12px; color: var(--text-secondary); margin-bottom: 14px; }
         .config-form-error { background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:var(--radius); padding:10px 14px; font-size:13px; color:var(--danger); margin-bottom:12px; }
         .config-section .dashboard-compact-bar { margin-bottom:20px; }
+        @media (max-width: 640px) {
+          .config-form-row { flex-direction: column; gap: 0; }
+        }
       `}</style>
     </div>
   )

@@ -48,3 +48,47 @@ rules:
   - apiGroups: [""]
     resources: [pods/log]
     verbs: [get]
+
+  # ════════════════════════════════════════════════════════════
+  #  CLUSTER MANAGEMENT — WRITE OPERATIONS
+  #  (the dashboard's Configure tab: cordon/uncordon, namespaces,
+  #   services, configmaps, secrets, deployments, Calico CRDs)
+  # ════════════════════════════════════════════════════════════
+
+  # Nodes — cordon / uncordon (patch spec.unschedulable)
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [patch]
+
+  # Namespaces — create / delete
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [create, delete]
+
+  # Services — create / patch / delete
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [create, patch, delete]
+
+  # ConfigMaps — list / create / patch / delete
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch, create, patch, delete]
+
+  # Secrets — list / create / delete
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch, create, delete]
+
+  # Deployments — create / scale (patch /scale subresource) / restart / edit image
+  - apiGroups: ["apps"]
+    resources: [deployments]
+    verbs: [get, list, watch, create, patch]
+  - apiGroups: ["apps"]
+    resources: [deployments/scale]
+    verbs: [get, patch, update]
+
+  # Calico CRDs — IP pools and BGP peers (create / patch / delete)
+  - apiGroups: ["crd.projectcalico.org"]
+    resources: [ippools, bgppeers]
+    verbs: [create, patch, delete]

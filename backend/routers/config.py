@@ -139,7 +139,21 @@ class SecretCreate(BaseModel):
     type: str = "Opaque"
     data: Dict[str, str] = Field(default={}, description="Base64-encoded values")
 
+class SecretUpdate(BaseModel):
+    type: Optional[str] = None
+    data: Optional[Dict[str, str]] = Field(None, description="Base64-encoded values")
+
 # ─── Deployment models ────────────────────────────────────────
+
+class DeploymentCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=253)
+    namespace: str = "default"
+    replicas: int = Field(1, ge=0, le=1000)
+    image: str = Field(..., min_length=1, description="Container image, e.g. nginx:1.27")
+    app_label: Optional[str] = None
+
+class DeploymentImageUpdate(BaseModel):
+    image: str = Field(..., min_length=1)
 
 class ScaleRequest(BaseModel):
     replicas: int = Field(..., ge=0, le=1000)
@@ -239,6 +253,34 @@ async def list_secrets(api_client=Depends(get_k8s_client), namespace: str = "") 
     except Exception as e:
         logger.warning(f"List secrets failed: {e}")
         return {"status": "error", "data": []}
+
+@router.get("/configmaps/{namespace}/{name}")
+async def get_configmap_detail(namespace: str, name: str, api_client=Depends(get_k8s_client)) -> Dict[str, Any]:
+    """Full ConfigMap detail including data — for the edit form."""
+    if api_client is None:
+        return {"status": "mock", "data": {"name": name, "namespace": namespace, "data": {}}}
+    try:
+        from kubernetes_asyncio import client as k8s_client
+        v1 = k8s_client.CoreV1Api(api_client)
+        cm = await v1.read_namespaced_config_map(name=name, namespace=namespace)
+        return {"status": "success", "data": {"name": name, "namespace": namespace, "data": cm.data or {}}}
+    except Exception as e:
+        logger.warning(f"Get configmap {namespace}/{name} failed: {e}")
+        return {"status": "error", "data": {}}
+
+@router.get("/secrets/{namespace}/{name}")
+async def get_secret_detail(namespace: str, name: str, api_client=Depends(get_k8s_client)) -> Dict[str, Any]:
+    """Full Secret detail including base64 data — for the edit form."""
+    if api_client is None:
+        return {"status": "mock", "data": {"name": name, "namespace": namespace, "type": "Opaque", "data": {}}}
+    try:
+        from kubernetes_asyncio import client as k8s_client
+        v1 = k8s_client.CoreV1Api(api_client)
+        sec = await v1.read_namespaced_secret(name=name, namespace=namespace)
+        return {"status": "success", "data": {"name": name, "namespace": namespace, "type": sec.type or "Opaque", "data": sec.data or {}}}
+    except Exception as e:
+        logger.warning(f"Get secret {namespace}/{name} failed: {e}")
+        return {"status": "error", "data": {}}
 
 @router.get("/deployments")
 async def list_deployments(api_client=Depends(get_k8s_client), namespace: str = "") -> Dict[str, Any]:
@@ -470,6 +512,18 @@ async def create_secret_endpoint(secret: SecretCreate, api_client=Depends(get_k8
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.put("/secrets/{namespace}/{name}")
+async def update_secret_endpoint(namespace: str, name: str, secret: SecretUpdate, api_client=Depends(get_k8s_client), _su=Depends(require_super_user)) -> Dict[str, Any]:
+    if api_client is None:
+        raise HTTPException(status_code=503, detail="Kubernetes API not available")
+    try:
+        update_data = {k: v for k, v in secret.model_dump().items() if v is not None}
+        await config_service.update_secret(api_client, namespace, name, update_data)
+        return {"status": "success", "data": {"name": name, "namespace": namespace}}
+    except Exception as e:
+        logger.error(f"Update secret {namespace}/{name} failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.delete("/secrets/{namespace}/{name}")
 async def delete_secret_endpoint(namespace: str, name: str, api_client=Depends(get_k8s_client), _su=Depends(require_super_user)) -> Dict[str, Any]:
     if api_client is None:
@@ -478,6 +532,30 @@ async def delete_secret_endpoint(namespace: str, name: str, api_client=Depends(g
         await config_service.delete_secret(api_client, namespace, name)
         return {"status": "success", "data": {"name": name}}
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ─── Deployment write ─────────────────────────────────────────
+
+@router.post("/deployments", status_code=201)
+async def create_deployment_endpoint(dep: DeploymentCreate, api_client=Depends(get_k8s_client), _su=Depends(require_super_user)) -> Dict[str, Any]:
+    if api_client is None:
+        raise HTTPException(status_code=503, detail="Kubernetes API not available")
+    try:
+        await config_service.create_deployment(api_client, dep.model_dump())
+        return {"status": "success", "data": {"name": dep.name, "namespace": dep.namespace}}
+    except Exception as e:
+        logger.error(f"Create deployment failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/deployments/{namespace}/{name}/image")
+async def update_deployment_image_endpoint(namespace: str, name: str, body: DeploymentImageUpdate, api_client=Depends(get_k8s_client), _su=Depends(require_super_user)) -> Dict[str, Any]:
+    if api_client is None:
+        raise HTTPException(status_code=503, detail="Kubernetes API not available")
+    try:
+        await config_service.update_deployment_image(api_client, namespace, name, body.image)
+        return {"status": "success", "data": {"name": name, "namespace": namespace, "image": body.image}}
+    except Exception as e:
+        logger.error(f"Update deployment {namespace}/{name} image failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ─── Deployment operations ──────────────────────────────────────
