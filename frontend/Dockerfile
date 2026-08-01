@@ -12,8 +12,13 @@ COPY package.json package-lock.json* ./
 RUN npm cache clean --force && \
     npm install --omit=optional --no-audit --no-fund --network-timeout=300000 --maxsockets=3
 
-# Install native binding for Alpine (musl) — otherwise rolldown fails
-RUN npm install @rolldown/binding-linux-x64-musl --no-save --no-audit --no-fund --network-timeout=120000
+# Install native binding for Alpine (musl) — otherwise rolldown fails.
+# Pin it to the EXACT rolldown JS version installed from the lock file.
+# Installing the latest musl binding here causes a native/JS version skew
+# that breaks the build with:
+#   value "builtin:vite-wasm-fallback" does not match any variant of
+#   enum BindingBuiltinPluginName on BindingBuiltinPlugin.__name
+RUN npm install @rolldown/binding-linux-x64-musl@$(node -p "require('./node_modules/rolldown/package.json').version") --no-save --no-audit --no-fund --network-timeout=120000
 
 COPY . .
 
