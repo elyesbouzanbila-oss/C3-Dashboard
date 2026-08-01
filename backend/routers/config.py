@@ -17,6 +17,19 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/config", tags=["Configuration"])
 
+# Kubernetes DNS-1123 subdomain: lowercase alphanumeric, dashes, optional dots.
+# Enforced on every resource name so invalid names get a clean 422 instead of
+# a raw 500 from the Kubernetes API server.
+DNS_NAME_PATTERN = r"^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$"
+
+# IPv4 CIDR, e.g. 10.244.0.0/16. Lenient octet ranges (defense-in-depth only;
+# the cluster rejects truly invalid CIDRs).
+CIDR_PATTERN = r"^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$"
+
+# IPv4 dotted-quad or IPv6 address. Lenient (defense-in-depth only; the cluster
+# rejects truly invalid addresses). Grouped so both alternatives are anchored.
+IP_PATTERN = r"^(?:(\d{1,3}\.){3}\d{1,3}|[0-9a-fA-F:]+)$"
+
 
 # ═══════════════════════════════════════════════════════════════════
 #  SUPER USER AUTH
@@ -67,8 +80,8 @@ def require_super_user(x_super_user_password: str = Header("", alias="X-Super-Us
 # ─── IP Pool models ────────────────────────────────────────────
 
 class IPPoolCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=253)
-    cidr: str = Field(..., description="CIDR notation, e.g. 10.244.0.0/16")
+    name: str = Field(..., min_length=1, max_length=253, pattern=DNS_NAME_PATTERN)
+    cidr: str = Field(..., description="CIDR notation, e.g. 10.244.0.0/16", pattern=CIDR_PATTERN)
     nat_outgoing: bool = True
     disabled: bool = False
     mode: str = Field(default="vxlan", pattern="^(ipip|vxlan|none)$")
@@ -83,14 +96,14 @@ class IPPoolUpdate(BaseModel):
 # ─── BGP Peer models ──────────────────────────────────────────
 
 class BGPPeerCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=253)
-    peer_ip: str = Field(..., description="Peer IP address")
+    name: str = Field(..., min_length=1, max_length=253, pattern=DNS_NAME_PATTERN)
+    peer_ip: str = Field(..., description="Peer IP address", pattern=IP_PATTERN)
     peer_as_number: int = Field(default=64512, ge=1, le=65535)
     node_as_number: Optional[int] = Field(None, ge=1, le=65535)
     node: Optional[str] = None
 
 class BGPPeerUpdate(BaseModel):
-    peer_ip: Optional[str] = None
+    peer_ip: Optional[str] = Field(None, pattern=IP_PATTERN)
     peer_as_number: Optional[int] = Field(None, ge=1, le=65535)
     node_as_number: Optional[int] = Field(None, ge=1, le=65535)
     node: Optional[str] = None
@@ -98,7 +111,7 @@ class BGPPeerUpdate(BaseModel):
 # ─── Namespace models ─────────────────────────────────────────
 
 class NamespaceCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=253, pattern=r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
+    name: str = Field(..., min_length=1, max_length=253, pattern=DNS_NAME_PATTERN)
 
 # ─── Service models ───────────────────────────────────────────
 
@@ -109,8 +122,8 @@ class ServicePort(BaseModel):
     name: Optional[str] = None
 
 class ServiceCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=253)
-    namespace: str = "default"
+    name: str = Field(..., min_length=1, max_length=253, pattern=DNS_NAME_PATTERN)
+    namespace: str = Field("default", pattern=DNS_NAME_PATTERN)
     selector: Dict[str, str] = {}
     ports: List[ServicePort] = [ServicePort()]
     type: str = "ClusterIP"
@@ -124,8 +137,8 @@ class ServiceUpdate(BaseModel):
 # ─── ConfigMap models ─────────────────────────────────────────
 
 class ConfigMapCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=253)
-    namespace: str = "default"
+    name: str = Field(..., min_length=1, max_length=253, pattern=DNS_NAME_PATTERN)
+    namespace: str = Field("default", pattern=DNS_NAME_PATTERN)
     data: Dict[str, str] = {}
 
 class ConfigMapUpdate(BaseModel):
@@ -134,8 +147,8 @@ class ConfigMapUpdate(BaseModel):
 # ─── Secret models ────────────────────────────────────────────
 
 class SecretCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=253)
-    namespace: str = "default"
+    name: str = Field(..., min_length=1, max_length=253, pattern=DNS_NAME_PATTERN)
+    namespace: str = Field("default", pattern=DNS_NAME_PATTERN)
     type: str = "Opaque"
     data: Dict[str, str] = Field(default={}, description="Base64-encoded values")
 
@@ -146,8 +159,8 @@ class SecretUpdate(BaseModel):
 # ─── Deployment models ────────────────────────────────────────
 
 class DeploymentCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=253)
-    namespace: str = "default"
+    name: str = Field(..., min_length=1, max_length=253, pattern=DNS_NAME_PATTERN)
+    namespace: str = Field("default", pattern=DNS_NAME_PATTERN)
     replicas: int = Field(1, ge=0, le=1000)
     image: str = Field(..., min_length=1, description="Container image, e.g. nginx:1.27")
     app_label: Optional[str] = None

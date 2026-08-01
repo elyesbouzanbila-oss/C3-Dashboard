@@ -36,13 +36,36 @@ async function listResource<T>(path: string): Promise<T[]> {
   } catch { return [] }
 }
 
+/** Extract a human-readable message from a FastAPI / K8s error response. */
+async function extractError(res: Response): Promise<string> {
+  // Read the body ONCE as text, then try JSON.parse — avoids the double-consume
+  // bug where res.json() throws after reading the stream and res.text() returns ''.
+  const txt = await res.text().catch(() => '')
+  try {
+    const data = JSON.parse(txt)
+    // FastAPI 422: {detail: [{loc: [...], msg, type}]}
+    if (data?.detail && Array.isArray(data.detail)) {
+      const parts = (data.detail as any[])
+        .map(d => {
+          const field = Array.isArray(d.loc) ? d.loc.slice(1).join('.') : 'field'
+          return `${field}: ${d.msg}`
+        })
+        .filter(Boolean)
+      return parts.join('; ') || `Validation error (HTTP ${res.status})`
+    }
+    // FastAPI HTTPException: {detail: "..."}
+    if (typeof data?.detail === 'string') return data.detail
+    if (typeof data?.message === 'string') return data.message
+    return JSON.stringify(data).slice(0, 400) || txt || `HTTP ${res.status}`
+  } catch {
+    return txt || `HTTP ${res.status}`
+  }
+}
+
 async function deleteResource(path: string): Promise<string | null> {
   try {
     const res = await fetch(`${API_BASE_URL}${path}`, { method: 'DELETE', headers: getAuthHeaders() })
-    if (!res.ok) {
-      const txt = await res.text()
-      return txt || `HTTP ${res.status}`
-    }
+    if (!res.ok) return extractError(res)
     return null
   } catch (e) { return e instanceof Error ? e.message : 'Network error' }
 }
@@ -52,10 +75,7 @@ async function writeResource(path: string, method: string, body: unknown): Promi
     const res = await fetch(`${API_BASE_URL}${path}`, {
       method, headers: getAuthHeaders(), body: JSON.stringify(body),
     })
-    if (!res.ok) {
-      const txt = await res.text()
-      return txt || `HTTP ${res.status}`
-    }
+    if (!res.ok) return extractError(res)
     return null
   } catch (e) { return e instanceof Error ? e.message : 'Network error' }
 }
@@ -93,6 +113,44 @@ function parseDataLines(text: string): { data: Record<string, string>; error?: s
     data[t.slice(0, idx).trim()] = t.slice(idx + 1)
   }
   return { data }
+}
+
+// ── Client-side validation (mirrors the backend + K8s DNS-1123 rules) ──
+
+const K8S_NAME_RE = /^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$/
+const CIDR_RE = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/
+const IPV4_RE = /^(\d{1,3}\.){3}\d{1,3}$/
+
+/** Validate a Kubernetes resource name. Returns an error message or null. */
+function validateName(name: string): string | null {
+  const n = (name || '').trim()
+  if (!n) return 'Name is required'
+  if (n.length > 253) return 'Name must be 253 characters or fewer'
+  if (!K8S_NAME_RE.test(n)) {
+    return 'Name must be lowercase letters, numbers, dashes or dots (e.g. my-app-1)'
+  }
+  return null
+}
+
+/** Validate a CIDR string. Returns an error message or null. */
+function validateCIDR(cidr: string): string | null {
+  const c = (cidr || '').trim()
+  if (!c) return 'CIDR is required'
+  if (!CIDR_RE.test(c)) return 'Invalid CIDR — use format like 10.244.0.0/16'
+  return null
+}
+
+/** Validate an IP address (IPv4 or IPv6). Returns an error message or null. */
+function validateIP(ip: string): string | null {
+  const v = (ip || '').trim()
+  if (!v) return 'Peer IP is required'
+  // IPv6 addresses contain colons; IPv4 must be dotted-quad.
+  if (v.includes(':')) {
+    if (v.split(':').length < 3) return 'Invalid IPv6 address — use format like fd00::1'
+    return null
+  }
+  if (!IPV4_RE.test(v)) return 'Invalid IP address — use format like 192.168.1.254'
+  return null
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -501,12 +559,19 @@ export function ClusterConfigPanel() {
     const handleSave = () => {
       let path = '', method = '', body: any = {}
       switch (type) {
-        case 'namespace':
-          if (!nsName.trim()) { setModalError('Name is required'); return }
+        case 'namespace': {
+          const err = validateName(nsName)
+          if (err) { setModalError(err); return }
           path = '/api/config/namespaces'; method = 'POST'; body = { name: nsName.trim() }
           break
+        }
         case 'ippool': {
-          if (!form.name?.trim() || !form.cidr?.trim()) { setModalError('Name and CIDR are required'); return }
+          const nameErr = validateName(form.name)
+          if (nameErr) { setModalError(nameErr); return }
+          if (!editing) {
+            const cidrErr = validateCIDR(form.cidr)
+            if (cidrErr) { setModalError(cidrErr); return }
+          }
           if (editing) {
             path = `/api/config/ippools/${encodeURIComponent(form.name)}`; method = 'PUT'
             body = { nat_outgoing: !!form.nat_outgoing, disabled: !!form.disabled, mode: form.mode, node_selector: form.node_selector }
@@ -517,7 +582,10 @@ export function ClusterConfigPanel() {
           break
         }
         case 'bgppeer': {
-          if (!form.name?.trim() || !form.peer_ip?.trim()) { setModalError('Name and Peer IP are required'); return }
+          const nameErr = validateName(form.name)
+          if (nameErr) { setModalError(nameErr); return }
+          const ipErr = validateIP(form.peer_ip)
+          if (ipErr) { setModalError(ipErr); return }
           const bodyPartial: any = {
             peer_ip: form.peer_ip.trim(),
             peer_as_number: Number(form.peer_as_number) || 64512,
@@ -534,18 +602,25 @@ export function ClusterConfigPanel() {
           break
         }
         case 'configmap': {
+          if (!editing) {
+            const nameErr = validateName(form.name)
+            if (nameErr) { setModalError(nameErr); return }
+          }
           const { data: kv, error } = parseDataLines(form.dataLines || '')
           if (error) { setModalError(error); return }
           if (editing) {
             path = `/api/config/configmaps/${form.namespace}/${form.name}`; method = 'PUT'; body = { data: kv }
           } else {
-            if (!form.name?.trim()) { setModalError('Name is required'); return }
             path = '/api/config/configmaps'; method = 'POST'
             body = { name: form.name.trim(), namespace: form.namespace?.trim() || 'default', data: kv }
           }
           break
         }
         case 'secret': {
+          if (!editing) {
+            const nameErr = validateName(form.name)
+            if (nameErr) { setModalError(nameErr); return }
+          }
           const { data: kv, error } = parseDataLines(form.dataLines || '')
           if (error) { setModalError(error); return }
           const encoded = Object.fromEntries(Object.entries(kv).map(([k, v]) => [k, encodeB64(v)]))
@@ -553,18 +628,20 @@ export function ClusterConfigPanel() {
             path = `/api/config/secrets/${form.namespace}/${form.name}`; method = 'PUT'
             body = { type: form.secretType || 'Opaque', data: encoded }
           } else {
-            if (!form.name?.trim()) { setModalError('Name is required'); return }
             path = '/api/config/secrets'; method = 'POST'
             body = { name: form.name.trim(), namespace: form.namespace?.trim() || 'default', type: form.secretType || 'Opaque', data: encoded }
           }
           break
         }
         case 'deployment': {
+          if (!editing) {
+            const nameErr = validateName(form.name)
+            if (nameErr) { setModalError(nameErr); return }
+          }
+          if (!form.image?.trim()) { setModalError('Image is required'); return }
           if (editing) {
-            if (!form.image?.trim()) { setModalError('Image is required'); return }
             path = `/api/config/deployments/${form.namespace}/${form.name}/image`; method = 'PUT'; body = { image: form.image.trim() }
           } else {
-            if (!form.name?.trim() || !form.image?.trim()) { setModalError('Name and image are required'); return }
             path = '/api/config/deployments'; method = 'POST'
             const replicasRaw = String(form.replicas ?? '').trim()
             const parsedReplicas = Number(replicasRaw)
