@@ -52,8 +52,11 @@ async def update_ip_pool(api_client, name: str, pool_data: Dict[str, Any]) -> Di
         spec["ipipMode"] = _resolve_encap_mode(pool_data["mode"], "ipip")
         spec["vxlanMode"] = _resolve_encap_mode(pool_data["mode"], "vxlan")
     if "node_selector" in pool_data: spec["nodeSelector"] = pool_data["node_selector"]
+    # Explicit merge-patch content type: the client's default (application/json-patch+json)
+    # makes the API server expect a JSON Patch array, but we send a partial object.
     return await custom_api.patch_cluster_custom_object(
-        group=CALICO_GROUP, version=CALICO_VERSION, plural="ippools", name=name, body={"spec": spec}
+        group=CALICO_GROUP, version=CALICO_VERSION, plural="ippools", name=name,
+        body={"spec": spec}, content_type="application/merge-patch+json"
     )
 
 
@@ -91,8 +94,10 @@ async def update_bgp_peer(api_client, name: str, peer_data: Dict[str, Any]) -> D
     if "peer_as_number" in peer_data: spec["asNumber"] = peer_data["peer_as_number"]
     if "node_as_number" in peer_data: spec["nodeASNumber"] = peer_data["node_as_number"]
     if "node" in peer_data: spec["node"] = peer_data["node"]
+    # Explicit merge-patch content type: see update_ip_pool for the rationale.
     return await custom_api.patch_cluster_custom_object(
-        group=CALICO_GROUP, version=CALICO_VERSION, plural="bgppeers", name=name, body={"spec": spec}
+        group=CALICO_GROUP, version=CALICO_VERSION, plural="bgppeers", name=name,
+        body={"spec": spec}, content_type="application/merge-patch+json"
     )
 
 
