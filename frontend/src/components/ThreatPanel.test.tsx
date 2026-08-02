@@ -48,7 +48,7 @@ describe('ThreatPanel', () => {
 
   it('renders threat count', () => {
     render(<ThreatPanel />)
-    expect(screen.getByText(/Showing 4 of 4 events/i)).toBeInTheDocument()
+    expect(screen.getByText(/4 of 4 events/i)).toBeInTheDocument()
   })
 
   it('renders empty state when no threats', () => {
@@ -93,7 +93,7 @@ describe('ThreatPanel', () => {
     // Resume - should show new data including the 5th threat
     fireEvent.click(screen.getByText('Resume'))
     expect(screen.getByText('Pause')).toBeInTheDocument()
-    expect(screen.getByText(/Showing 5 of 5 events/i)).toBeInTheDocument()
+    expect(screen.getByText(/5 of 5 events/i)).toBeInTheDocument()
     expect(screen.getByText('New threat')).toBeInTheDocument()
   })
 
@@ -107,12 +107,12 @@ describe('ThreatPanel', () => {
     // Clear: unpauses, onClear is called, status reverts to showing count
     fireEvent.click(screen.getByText('Clear'))
     expect(screen.getByText('Pause')).toBeInTheDocument()
-    expect(screen.getByText(/Showing 4 of 4 events/i)).toBeInTheDocument()
+    expect(screen.getByText(/4 of 4 events/i)).toBeInTheDocument()
   })
 
   it('shows connected status when wsConnected is true', () => {
     render(<ThreatPanel />)
-    expect(screen.getByText(/Real-time threat monitoring active/i)).toBeInTheDocument()
+    expect(screen.getByText(/Real-time monitoring active/i)).toBeInTheDocument()
   })
 
   it('shows disconnected status when wsConnected is false', () => {
