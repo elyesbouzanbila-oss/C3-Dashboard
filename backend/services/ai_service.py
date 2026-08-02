@@ -361,7 +361,7 @@ class AIService:
             if use_tools and e.response.status_code in (400, 404, 422):
                 logger.warning(
                     f"AI API rejected tools payload (HTTP {e.response.status_code}); "
-                    "retrying without tools"
+                    f"body={e.response.text[:500]}; retrying without tools"
                 )
                 fallback_messages: List[Dict[str, Any]] = [
                     {"role": "system", "content": SYSTEM_PROMPT_NO_TOOLS + supplementary}
