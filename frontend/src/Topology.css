@@ -8,43 +8,10 @@
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius);
   overflow: hidden;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
   background: var(--surface);
-  transition: box-shadow 0.3s ease, border-color 0.3s ease;
-  animation: topologyFadeIn 0.5s ease-out;
-}
-
-.topology-container::after {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: calc(var(--radius-lg) + 1px);
-  padding: 1.5px;
-  background: linear-gradient(135deg, transparent 30%, transparent 70%);
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.5s ease, background 0.7s ease;
-  z-index: 5;
-}
-
-.topology-container:hover::after {
-  opacity: 1;
-  background: linear-gradient(135deg, var(--primary), transparent 35%, transparent 65%, var(--info));
-}
-
-.topology-container:hover {
-  border-color: var(--border-hover);
-  box-shadow: 0 6px 32px rgba(0, 0, 0, 0.4);
-}
-
-@keyframes topologyFadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  transition: border-color 0.15s ease;
 }
 
 /* ─── Focus visible for container ─────────────────────────── */
@@ -88,11 +55,6 @@
 
 .stat:hover {
   background-color: rgba(255, 255, 255, 0.04);
-  transform: translateY(-1px);
-}
-
-.stat:active {
-  transform: scale(0.97);
 }
 
 .stat-dot {
@@ -109,27 +71,22 @@
 
 .master-dot {
   background-color: #EC4899;
-  box-shadow: 0 0 6px rgba(236, 72, 153, 0.4);
 }
 
 .worker-dot {
   background-color: #3B82F6;
-  box-shadow: 0 0 6px rgba(59, 130, 246, 0.4);
 }
 
 .pod-dot {
   background-color: #10B981;
-  box-shadow: 0 0 6px rgba(16, 185, 129, 0.4);
 }
 
 .service-dot {
   background-color: #8B5CF6;
-  box-shadow: 0 0 6px rgba(139, 92, 246, 0.4);
 }
 
 .ns-dot {
   background-color: #6366F1;
-  box-shadow: 0 0 6px rgba(99, 102, 241, 0.4);
 }
 
 .edge-dot {
@@ -139,7 +96,6 @@
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
   border-top: 7px solid rgba(148, 163, 184, 0.6);
-  filter: drop-shadow(0 0 3px rgba(148, 163, 184, 0.3));
 }
 
 .stat-value {
@@ -192,56 +148,8 @@
 .topology-graph-wrapper {
   position: relative;
   height: 580px;
-  background:
-    /* Fine dot grid */
-    radial-gradient(circle, rgba(230, 181, 102, 0.06) 1.2px, transparent 1.2px),
-    /* Slightly larger accent dots for depth */
-    radial-gradient(circle, rgba(90, 180, 217, 0.05) 1px, transparent 1px),
-    /* Main gradient with subtle navy tint */
-    linear-gradient(180deg, rgba(7, 12, 26, 0.98) 0%, rgba(13, 22, 44, 0.96) 40%, rgba(18, 28, 52, 0.93) 60%, rgba(9, 15, 30, 0.98) 100%);
-  background-size: 24px 24px, 48px 48px, 100% 100%;
+  background: var(--bg);
   overflow: hidden;
-  transition: background-size 0.3s ease;
-}
-
-/* Dual-layer animated glow at the center */
-.topology-graph-wrapper::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 600px;
-  height: 600px;
-  transform: translate(-50%, -50%);
-  background: radial-gradient(circle, rgba(230, 181, 102, 0.05) 0%, rgba(90, 180, 217, 0.02) 40%, transparent 70%);
-  pointer-events: none;
-  z-index: 0;
-  animation: topologyGlowPulse 5s ease-in-out infinite;
-}
-
-/* Secondary larger, slower pulse */
-.topology-graph-wrapper::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 800px;
-  height: 800px;
-  transform: translate(-50%, -50%);
-  background: radial-gradient(circle, rgba(16, 185, 129, 0.02) 0%, transparent 60%);
-  pointer-events: none;
-  z-index: 0;
-  animation: topologyGlowPulse2 8s ease-in-out infinite;
-}
-
-@keyframes topologyGlowPulse {
-  0%, 100% { opacity: 0.4; transform: translate(-50%, -50%) scale(1); }
-  50% { opacity: 1; transform: translate(-50%, -50%) scale(1.15); }
-}
-
-@keyframes topologyGlowPulse2 {
-  0%, 100% { opacity: 0.3; transform: translate(-50%, -50%) scale(1); }
-  50% { opacity: 0.8; transform: translate(-50%, -50%) scale(1.2); }
 }
 
 .topology-graph {
@@ -272,30 +180,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  background: rgba(15, 23, 42, 0.85);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: border-color 0.15s ease;
   padding: 0;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1;
 }
 
 .topology-zoom-btn:hover {
-  background: rgba(230, 181, 102, 0.18);
-  border-color: rgba(230, 181, 102, 0.3);
+  border-color: var(--primary);
   color: var(--text);
-  transform: scale(1.05);
-}
-
-.topology-zoom-btn:active {
-  transform: scale(0.95);
 }
 
 .topology-zoom-btn svg {
@@ -309,24 +209,21 @@
   bottom: 16px;
   left: 50%;
   transform: translateX(-50%) translateY(20px);
-  background: rgba(15, 23, 42, 0.88);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-left: 3px solid var(--primary);
-  border-radius: 10px;
-  padding: 12px 22px;
+  border-radius: var(--radius);
+  padding: 10px 16px;
   font-size: 12px;
   color: var(--text);
   white-space: nowrap;
   opacity: 0;
-  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.2s ease;
   pointer-events: none;
   max-width: 90%;
   overflow: hidden;
   text-overflow: ellipsis;
   font-family: var(--font-mono);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 30px rgba(230, 181, 102, 0.08);
   z-index: 100;
   line-height: 1.5;
 }
@@ -339,14 +236,12 @@
 /* ─── Legend ──────────────────────────────────────────────────── */
 .topology-legend {
   display: flex;
-  gap: 24px;
-  padding: 14px 18px;
-  background: linear-gradient(135deg, rgba(12, 20, 40, 0.9) 0%, rgba(16, 27, 51, 0.85) 100%);
+  gap: 20px;
+  padding: 12px 16px;
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
   flex-wrap: wrap;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
 }
 
 .legend-section {
@@ -357,48 +252,28 @@
 }
 
 .legend-title {
-  font-size: 9px;
-  font-weight: 700;
+  font-size: 10px;
+  font-weight: 600;
   text-transform: uppercase;
   color: var(--text-tertiary);
-  letter-spacing: 0.9px;
+  letter-spacing: 0.5px;
   margin-bottom: 4px;
-  opacity: 0.7;
-  padding-bottom: 3px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
 .legend-item {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   font-size: 11px;
   color: var(--text-secondary);
   white-space: nowrap;
-  padding: 3px 6px;
-  border-radius: 6px;
-  transition: all 0.2s ease;
-  animation: legendItemFadeIn 0.4s ease-out both;
-}
-
-.legend-item:nth-child(2) { animation-delay: 0.03s; }
-.legend-item:nth-child(3) { animation-delay: 0.06s; }
-.legend-item:nth-child(4) { animation-delay: 0.09s; }
-.legend-item:nth-child(5) { animation-delay: 0.12s; }
-.legend-item:nth-child(6) { animation-delay: 0.15s; }
-.legend-item:nth-child(7) { animation-delay: 0.18s; }
-.legend-item:nth-child(8) { animation-delay: 0.21s; }
-.legend-item:nth-child(9) { animation-delay: 0.24s; }
-.legend-item:nth-child(10) { animation-delay: 0.27s; }
-
-@keyframes legendItemFadeIn {
-  from { opacity: 0; transform: translateX(-6px); }
-  to { opacity: 1; transform: translateX(0); }
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: background-color 0.15s ease;
 }
 
 .legend-item:hover {
   background: rgba(255, 255, 255, 0.04);
-  color: var(--text);
 }
 
 .legend-ip {
@@ -414,17 +289,10 @@
 
 /* Legend Colors */
 .legend-color {
-  min-width: 10px;
-  min-height: 10px;
+  min-width: 8px;
+  min-height: 8px;
   border-radius: 50%;
-  border: 1.5px solid rgba(255, 255, 255, 0.15);
   flex-shrink: 0;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.legend-item:hover .legend-color {
-  transform: scale(1.35);
-  box-shadow: 0 0 8px currentColor;
 }
 
 .legend-color.master-bg {
@@ -438,39 +306,29 @@
 .service-color {
   background-color: #8B5CF6;
   border-radius: 3px;
-  min-width: 12px;
-  min-height: 12px;
-  box-shadow: 0 0 6px rgba(139, 92, 246, 0.3);
+  min-width: 10px;
+  min-height: 10px;
 }
 
 /* Legend Shapes */
 .legend-shape {
-  min-width: 18px;
-  min-height: 18px;
+  min-width: 16px;
+  min-height: 16px;
   flex-shrink: 0;
   border-radius: 3px;
-  border: 1.5px solid rgba(255, 255, 255, 0.2);
-  transition: all 0.2s ease;
-}
-
-.legend-item:hover .legend-shape {
-  transform: scale(1.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
 .legend-shape.cluster-master {
-  background: linear-gradient(135deg, rgba(236, 72, 153, 0.2), rgba(236, 72, 153, 0.08));
-  border-color: rgba(236, 72, 153, 0.5);
+  background: rgba(236, 72, 153, 0.15);
+  border-color: rgba(236, 72, 153, 0.4);
   border-style: dashed;
-  border-radius: 5px;
-  box-shadow: 0 0 8px rgba(236, 72, 153, 0.1);
 }
 
 .legend-shape.cluster-worker {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(59, 130, 246, 0.08));
-  border-color: rgba(59, 130, 246, 0.4);
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.3);
   border-style: dashed;
-  border-radius: 5px;
-  box-shadow: 0 0 8px rgba(59, 130, 246, 0.1);
 }
 
 .legend-shape.ns-legend {
@@ -481,35 +339,25 @@
 }
 
 .legend-shape.pod-legend {
-  background: linear-gradient(135deg, #10B981, #059669);
+  background: #10B981;
   border-radius: 50%;
-  border-color: rgba(255, 255, 255, 0.3);
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.3);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .legend-shape.service-legend {
-  background: linear-gradient(135deg, #8B5CF6, #7C3AED);
-  border-radius: 4px;
-  border-color: rgba(255, 255, 255, 0.3);
-  box-shadow: 0 0 8px rgba(139, 92, 246, 0.3);
+  background: #8B5CF6;
+  border-radius: 3px;
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 /* ─── Hint Bar ────────────────────────────────────────────────── */
 .topology-hint {
-  padding: 10px 16px;
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.5), rgba(10, 14, 26, 0.7));
+  padding: 8px 16px;
+  background: var(--surface);
   font-size: 11px;
   color: var(--text-tertiary);
   text-align: center;
-  font-style: italic;
-  letter-spacing: 0.3px;
-  border-top: 1px solid rgba(255, 255, 255, 0.03);
-  transition: color 0.2s ease, border-color 0.2s ease;
-}
-
-.topology-container:hover .topology-hint {
-  color: var(--text-secondary);
-  border-top-color: rgba(255, 255, 255, 0.06);
+  border-top: 1px solid var(--border);
 }
 
 /* ─── Smooth Animation ───────────────────────────────────────── */

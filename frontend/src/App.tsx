@@ -4,33 +4,23 @@ import { DashboardProvider, useDashboard } from './context/DashboardContext'
 import { Icon } from './components/Icon'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { DashboardPanel } from './components/DashboardPanel'
-import { CniHealthPanel } from './components/CniHealthPanel'
-import { IpamPanel } from './components/IpamPanel'
-import { PolicyInspectorPanel } from './components/PolicyInspectorPanel'
-import { PolicyCoveragePanel } from './components/PolicyCoveragePanel'
-import { CniTopologyPanel } from './components/CniTopologyPanel'
-import { DiagnosticsPanel } from './components/DiagnosticsPanel'
-import { ThreatPanel } from './components/ThreatPanel'
-import { SecurityPanel } from './components/SecurityPanel'
+import { NetworkSection } from './components/NetworkSection'
+import { SecuritySection } from './components/SecuritySection'
+import { ToolsSection } from './components/ToolsSection'
 import { ChatPanel } from './components/ChatPanel'
-import { ClusterConfigPanel } from './components/ClusterConfigPanel'
 
-interface TabDef {
+// ── Section definitions ───────────────────────────────────────
+interface SectionDef {
   id: string
   label: string
   icon: React.ReactNode
 }
 
-const TABS: TabDef[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: <Icon name="layout-dashboard" /> },
-  { id: 'cni-health', label: 'CNI Health', icon: <Icon name="activity" /> },
-  { id: 'ipam', label: 'IPAM', icon: <Icon name="bar-chart" /> },
-  { id: 'policies', label: 'Policies', icon: <Icon name="shield" /> },
-  { id: 'topology', label: 'Topology', icon: <Icon name="network" /> },
-  { id: 'diagnostics', label: 'Diagnostics', icon: <Icon name="play" /> },
-  { id: 'threats', label: 'Threats', icon: <Icon name="alert-triangle" /> },
+const SECTIONS: SectionDef[] = [
+  { id: 'overview', label: 'Overview', icon: <Icon name="layout-dashboard" /> },
+  { id: 'network', label: 'Network', icon: <Icon name="network" /> },
   { id: 'security', label: 'Security', icon: <Icon name="shield" /> },
-  { id: 'config', label: 'Configure', icon: <Icon name="settings" /> },
+  { id: 'tools', label: 'Tools', icon: <Icon name="settings" /> },
 ]
 
 function AppContent() {
@@ -42,12 +32,14 @@ function AppContent() {
     exportData, connectWebSocket, setActiveTab, silentRefresh,
     cniNodesStatus, ipPoolsStatus, ipamStatus, policiesStatus,
     felixStatus, topologyStatus, rbacBindingsStatus, privilegedPodsStatus,
+    threats,
   } = useDashboard()
 
   const [currentTime, setCurrentTime] = useState(new Date())
-  const [policyCoverageView, setPolicyCoverageView] = useState<'definitions' | 'coverage'>('definitions')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
-  // ── DEMO DATA detection: any data source serving mock data ──
+  // ── DEMO DATA detection ──
   const mockSources = useMemo(() => {
     const sources: Array<[string, string]> = [
       ['CNI nodes', cniNodesStatus],
@@ -65,186 +57,202 @@ function AppContent() {
     felixStatus, topologyStatus, rbacBindingsStatus, privilegedPodsStatus,
   ])
 
-  // Live footer clock
   useEffect(() => {
     const interval = setInterval(() => setCurrentTime(new Date()), 1000)
     return () => clearInterval(interval)
   }, [])
 
-  // ── Silent refresh + WebSocket on tab switch ──
   useEffect(() => {
     silentRefresh()
-
     if (activeTab === 'threats') {
       connectWebSocket()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
 
-  // ── Keyboard navigation for tabs ──
-  const tabIndexMap = useMemo(() => Object.fromEntries(TABS.map((t, i) => [t.id, i])), [])
+  // Close mobile menu when section changes
+  useEffect(() => {
+    setMobileMenuOpen(false)
+  }, [activeTab])
 
-  const handleTabKeyDown = useCallback((e: React.KeyboardEvent) => {
-    const currentIdx = tabIndexMap[activeTab]
+  // Determine active section from active tab
+  const activeSection = useMemo(() => {
+    if (activeTab === 'dashboard') return 'overview'
+    if (['cni-health', 'ipam', 'topology', 'policies'].includes(activeTab)) return 'network'
+    if (['threats', 'security'].includes(activeTab)) return 'security'
+    if (['diagnostics', 'config'].includes(activeTab)) return 'tools'
+    return 'overview'
+  }, [activeTab])
+
+  const handleSectionClick = useCallback((sectionId: string) => {
+    // Map section to default tab
+    const defaults: Record<string, string> = {
+      'overview': 'dashboard',
+      'network': 'cni-health',
+      'security': 'threats',
+      'tools': 'diagnostics',
+    }
+    setActiveTab(defaults[sectionId] || 'dashboard')
+  }, [setActiveTab])
+
+  const handleSidebarKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const currentIdx = SECTIONS.findIndex(s => s.id === activeSection)
     let nextIdx: number | null = null
 
     switch (e.key) {
-      case 'ArrowRight':
       case 'ArrowDown':
         e.preventDefault()
-        nextIdx = (currentIdx + 1) % TABS.length
+        nextIdx = (currentIdx + 1) % SECTIONS.length
         break
-      case 'ArrowLeft':
       case 'ArrowUp':
         e.preventDefault()
-        nextIdx = (currentIdx - 1 + TABS.length) % TABS.length
-        break
-      case 'Home':
-        e.preventDefault()
-        nextIdx = 0
-        break
-      case 'End':
-        e.preventDefault()
-        nextIdx = TABS.length - 1
+        nextIdx = (currentIdx - 1 + SECTIONS.length) % SECTIONS.length
         break
       default:
         return
     }
 
     if (nextIdx !== null) {
-      const nextTab = TABS[nextIdx]
-      setActiveTab(nextTab.id)
-      setTimeout(() => {
-        document.getElementById(`tab-${nextTab.id}`)?.focus()
-      }, 0)
+      handleSectionClick(SECTIONS[nextIdx].id)
     }
-  }, [activeTab, tabIndexMap, setActiveTab])
+  }, [activeSection, handleSectionClick])
+
+  const threatCount = threats.length
 
   return (
-    <div className="app">
-      <header className="header">
-        <div className="header-left">
-          <img src="/logo.png" alt="" className="header-logo" aria-hidden="true" />
-          <div className="header-title-block">
-            <h1>CNI Command Center</h1>
-            <span className="header-subtitle">Calico Network Diagnostics</span>
-          </div>
-        </div>
-        <div className="header-right">
-          <div className={`status ${wsConnected ? 'status-ok' : 'status-warn'}`}>
-            <span className={`indicator ${wsConnected ? 'connected' : 'disconnected'}`} role="img" aria-label={wsConnected ? 'Connected' : 'Disconnected'} />
-            <span>{wsConnected ? 'Threats Live' : 'Disconnected'}</span>
-          </div>
-          <button className="refresh-btn" onClick={exportData} title="Export all data as JSON" aria-label="Export data">
-            <Icon name="download" size={16} />
-            <span>Export</span>
-          </button>
-        </div>
-      </header>
-
-      {mockSources.length > 0 && (
-        <div className="demo-banner" role="alert">
-          <div className="demo-banner-content">
-            <Icon name="alert-triangle" size={18} className="demo-banner-icon" aria-hidden="true" />
-            <strong>DEMO DATA</strong>
-            <span className="demo-banner-text">
-              {mockSources.length} data source{mockSources.length !== 1 ? 's' : ''} showing mock data
-              (<span className="demo-banner-sources">{mockSources.join(', ')}</span>) — not live cluster state
-            </span>
-          </div>
-        </div>
+    <div className="app-layout">
+      {/* Mobile overlay */}
+      {mobileMenuOpen && (
+        <div
+          className="mobile-overlay"
+          onClick={() => setMobileMenuOpen(false)}
+          onKeyDown={e => { if (e.key === 'Escape') setMobileMenuOpen(false) }}
+          aria-hidden="true"
+        />
       )}
 
-      {error && (
-        <div className="error-banner" role="alert">
-          <div className="error-banner-content">
-            <Icon name="x" size={20} className="error-icon" aria-hidden="true" style={{ strokeWidth: 2 }} />
-            <strong>Error:</strong> {error}
-          </div>
-          <button className="error-dismiss" onClick={() => setError(null)} aria-label="Dismiss error">
-            <Icon name="x" size={16} aria-hidden="true" />
-          </button>
-        </div>
-      )}
-
-      <nav className="tabs" role="tablist" aria-label="CNI Command Center tabs" onKeyDown={handleTabKeyDown}>
-        {TABS.map(tab => (
+      {/* Sidebar */}
+      <aside
+        className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''} ${mobileMenuOpen ? 'mobile-open' : ''}`}
+        aria-label="Main navigation"
+      >
+        <div className="sidebar-header">
+          <img src="/logo.png" alt="" className="sidebar-logo" aria-hidden="true" />
+          {!sidebarCollapsed && (
+            <div className="sidebar-brand">
+              <h1>CNI Command Center</h1>
+              <span className="sidebar-subtitle">Calico Diagnostics</span>
+            </div>
+          )}
           <button
-            key={tab.id}
-            id={`tab-${tab.id}`}
-            className={`tab ${activeTab === tab.id ? 'active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
-            role="tab"
-            aria-selected={activeTab === tab.id}
-            aria-controls={`tabpanel-${tab.id}`}
-            tabIndex={activeTab === tab.id ? 0 : -1}
+            className="sidebar-toggle"
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!sidebarCollapsed}
           >
-            <span className="tab-icon" aria-hidden="true">{tab.icon}</span>
-            <span className="tab-label">{tab.label}</span>
+            <Icon name={sidebarCollapsed ? 'chevron-right' : 'chevron-down'} size={16} />
           </button>
-        ))}
-      </nav>
+        </div>
 
-      <main className="content">
-        {loading && (
-          <div className="loading-overlay">
-            <div className="spinner" />
-            <span>Loading data...</span>
+        <nav className="sidebar-nav" role="navigation" onKeyDown={handleSidebarKeyDown}>
+          {SECTIONS.map(section => {
+            const isActive = activeSection === section.id
+            const hasAlert = section.id === 'security' && threatCount > 0
+            return (
+              <button
+                key={section.id}
+                className={`sidebar-item ${isActive ? 'active' : ''}`}
+                onClick={() => handleSectionClick(section.id)}
+                aria-current={isActive ? 'page' : undefined}
+                title={sidebarCollapsed ? section.label : undefined}
+              >
+                <span className="sidebar-item-icon">{section.icon}</span>
+                {!sidebarCollapsed && (
+                  <>
+                    <span className="sidebar-item-label">{section.label}</span>
+                    {hasAlert && (
+                      <span className="sidebar-item-badge">{threatCount}</span>
+                    )}
+                  </>
+                )}
+              </button>
+            )
+          })}
+        </nav>
+
+        <div className="sidebar-footer">
+          {!sidebarCollapsed && (
+            <>
+              <div className={`sidebar-status ${wsConnected ? 'connected' : ''}`}>
+                <span className="sidebar-status-dot" />
+                <span>{wsConnected ? 'Live' : 'Offline'}</span>
+              </div>
+              <button className="sidebar-export-btn" onClick={exportData} title="Export data">
+                <Icon name="download" size={14} />
+                <span>Export</span>
+              </button>
+            </>
+          )}
+        </div>
+      </aside>
+
+      {/* Main content area */}
+      <div className="main-area">
+        {/* Top bar */}
+        <header className="topbar">
+          <div className="topbar-left">
+            <button
+              className="mobile-menu-btn"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label="Toggle menu"
+              aria-expanded={mobileMenuOpen}
+            >
+              <Icon name="list" size={18} />
+            </button>
+            <span className="topbar-section">{SECTIONS.find(s => s.id === activeSection)?.label}</span>
+          </div>
+          <div className="topbar-right">
+            {mockSources.length > 0 && (
+              <div className="topbar-demo-badge" title={`Mock data: ${mockSources.join(', ')}`}>
+                <Icon name="alert-triangle" size={12} />
+                <span>DEMO</span>
+              </div>
+            )}
+            <span className="topbar-clock">{currentTime.toLocaleTimeString()}</span>
+          </div>
+        </header>
+
+        {/* Error banner */}
+        {error && (
+          <div className="error-banner" role="alert">
+            <div className="error-banner-content">
+              <Icon name="x" size={16} className="error-icon" />
+              <strong>Error:</strong> {error}
+            </div>
+            <button className="error-dismiss" onClick={() => setError(null)} aria-label="Dismiss error">
+              <Icon name="x" size={14} />
+            </button>
           </div>
         )}
 
-        <ErrorBoundary>
-          {TABS.map(tab => (
-            <div
-              key={tab.id}
-              id={`tabpanel-${tab.id}`}
-              role="tabpanel"
-              aria-labelledby={`tab-${tab.id}`}
-              className="tab-content"
-              hidden={activeTab !== tab.id}
-            >
-              {tab.id === 'dashboard' && (
-                <DashboardPanel onNavigate={setActiveTab} />
-              )}
-              {tab.id === 'cni-health' && <CniHealthPanel />}
-              {tab.id === 'ipam' && <IpamPanel />}
-              {tab.id === 'policies' && (
-                <>
-                  <div className="coverage-view-toggle" style={{ marginBottom: '20px' }}>
-                    <button
-                      className={`coverage-view-btn ${policyCoverageView === 'definitions' ? 'active' : ''}`}
-                      onClick={() => setPolicyCoverageView('definitions')}
-                    >
-                      <Icon name="list" size={16} /> Definitions
-                    </button>
-                    <button
-                      className={`coverage-view-btn ${policyCoverageView === 'coverage' ? 'active' : ''}`}
-                      onClick={() => setPolicyCoverageView('coverage')}
-                    >
-                      <Icon name="shield" size={16} /> Coverage
-                    </button>
-                  </div>
-                  {policyCoverageView === 'definitions' ? <PolicyInspectorPanel /> : <PolicyCoveragePanel />}
-                </>
-              )}
-              {tab.id === 'topology' && <CniTopologyPanel />}
-              {tab.id === 'diagnostics' && <DiagnosticsPanel />}
-              {tab.id === 'threats' && <ThreatPanel />}
-              {tab.id === 'security' && <SecurityPanel />}
-              {tab.id === 'config' && <ClusterConfigPanel />}
+        {/* Content */}
+        <main className="content">
+          {loading && (
+            <div className="loading-overlay">
+              <div className="spinner" />
+              <span>Loading data...</span>
             </div>
-          ))}
-        </ErrorBoundary>
-      </main>
+          )}
 
-      <footer className="footer">
-        <span>CNI Command Center</span>
-        <span className="footer-sep">·</span>
-        <span>{cniNodes.length} agents · {bgpPeers.length} BGP peers</span>
-        <span className="footer-sep">·</span>
-        <span>{currentTime.toLocaleTimeString()}</span>
-      </footer>
+          <ErrorBoundary>
+            {activeSection === 'overview' && <DashboardPanel onNavigate={setActiveTab} />}
+            {activeSection === 'network' && <NetworkSection />}
+            {activeSection === 'security' && <SecuritySection />}
+            {activeSection === 'tools' && <ToolsSection />}
+          </ErrorBoundary>
+        </main>
+      </div>
 
+      {/* Chat Panel */}
       <ChatPanel />
     </div>
   )
