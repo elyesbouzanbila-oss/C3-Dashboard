@@ -14,12 +14,14 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || ''
 //  Super User auth helpers
 // ═══════════════════════════════════════════════════════════════════
 
-let _superUserPassword = ''
+let _superUserToken = ''
 let _superUserSession = false
 
 function getAuthHeaders(): Record<string, string> {
   const h: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (_superUserPassword) h['X-Super-User-Password'] = _superUserPassword
+  // Short-lived session token minted by POST /api/config/auth (15-min TTL).
+  // The raw super-user password is never sent on write requests.
+  if (_superUserToken) h['X-Super-User-Token'] = _superUserToken
   return h
 }
 
@@ -211,15 +213,15 @@ export function ClusterConfigPanel() {
 
   const superUserSessionDuration = 15 * 60 * 1000 // 15 minutes
 
-  const handleAuthenticated = useCallback((password: string) => {
-    _superUserPassword = password
+  const handleAuthenticated = useCallback((token: string) => {
+    _superUserToken = token
     _superUserSession = true
     setSuperUserActive(true)
     setShowAuth(false)
 
     if (authTimerRef.current) clearTimeout(authTimerRef.current)
     authTimerRef.current = setTimeout(() => {
-      _superUserPassword = ''
+      _superUserToken = ''
       _superUserSession = false
       setSuperUserActive(false)
     }, superUserSessionDuration)
@@ -230,7 +232,7 @@ export function ClusterConfigPanel() {
   }, [])
 
   const requireAuth = useCallback((action: () => void) => {
-    if (_superUserSession && _superUserPassword) {
+    if (_superUserSession) {
       action()
     } else {
       // Store the action to run after auth
@@ -376,7 +378,7 @@ export function ClusterConfigPanel() {
 
   // ── Write actions wrapped in auth ─────────────────────────────
   const withAuth = useCallback((fn: () => Promise<string | null>, onSuccess: () => void) => {
-    if (!_superUserSession || !_superUserPassword) {
+    if (!_superUserSession) {
       setPendingAction(() => () => withAuth(fn, onSuccess))
       setShowAuth(true)
       return
@@ -720,7 +722,7 @@ export function ClusterConfigPanel() {
               Session active
             </span>
             <button className="refresh-btn" onClick={() => {
-              _superUserPassword = ''; _superUserSession = false; setSuperUserActive(false)
+              _superUserToken = ''; _superUserSession = false; setSuperUserActive(false)
               if (authTimerRef.current) clearTimeout(authTimerRef.current)
             }} style={{ color: 'var(--text-tertiary)' }}>
               <Icon name="lock" size={14} />

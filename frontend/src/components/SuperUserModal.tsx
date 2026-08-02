@@ -4,8 +4,8 @@ import { Icon } from './Icon'
 const API_BASE_URL = import.meta.env.VITE_API_URL || ''
 
 interface SuperUserModalProps {
-  /** Called with the password if authentication succeeds */
-  onAuthenticated: (password: string) => void
+  /** Called with the session token if authentication succeeds */
+  onAuthenticated: (token: string) => void
   /** Called when the user dismisses the modal */
   onCancel: () => void
 }
@@ -28,7 +28,8 @@ export function SuperUserModal({ onAuthenticated, onCancel }: SuperUserModalProp
       })
       const data = await res.json()
       if (data.authenticated) {
-        onAuthenticated(password)
+        // No-password mode returns authenticated without a token.
+        onAuthenticated(data.token || '')
       } else {
         setError(data.message || 'Invalid password')
       }

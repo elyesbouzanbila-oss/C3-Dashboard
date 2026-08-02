@@ -1,15 +1,19 @@
 """
 Cluster management endpoints — comprehensive CRUD for all major K8s resources
-with super user password protection for write operations.
+with super-user session-token protection for write operations.
 """
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request
+from kubernetes_asyncio.client.exceptions import ApiException
 from pydantic import BaseModel, Field
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from dependencies import get_k8s_client
-from services import config_service, calico_service
+from services import config_service, calico_service, auth_service
+from services.audit_service import get_audit_log, log_audit
 from services.logging_service import get_logger
 from models.mock_data import MOCK_IP_POOLS, MOCK_BGP_PEERS
 
@@ -35,6 +39,13 @@ IP_PATTERN = r"^(?:(\d{1,3}\.){3}\d{1,3}|[0-9a-fA-F:]+)$"
 #  SUPER USER AUTH
 # ═══════════════════════════════════════════════════════════════════
 
+# Rate limiter for the /auth endpoint — 5 attempts/minute per IP to blunt
+# brute-force password guessing (same pattern as the diagnostics limiter).
+auth_limiter = Limiter(key_func=get_remote_address)
+
+# Header carrying the short-lived session token minted by POST /auth.
+_TOKEN_HEADER = "X-Super-User-Token"
+
 
 class AuthRequest(BaseModel):
     password: str
@@ -43,34 +54,122 @@ class AuthRequest(BaseModel):
 class AuthResponse(BaseModel):
     authenticated: bool
     message: str
+    token: Optional[str] = None
 
 
 @router.post("/auth", response_model=AuthResponse)
-async def verify_super_user(auth: AuthRequest) -> AuthResponse:
-    """Verify super user password. Used by the frontend to authenticate write operations."""
+@auth_limiter.limit("5/minute")
+async def verify_super_user(request: Request, auth: AuthRequest) -> AuthResponse:
+    """Verify the super user password and mint a short-lived signed session token.
+
+    The returned token (15-minute TTL) must be sent as the X-Super-User-Token
+    header on write requests — the raw password is never transmitted again.
+    """
     from config import get_settings
     settings = get_settings()
     if not settings.SUPER_USER_PASSWORD:
         # No password configured = all operations allowed
         return AuthResponse(authenticated=True, message="No super user password configured")
-    if auth.password == settings.SUPER_USER_PASSWORD:
-        return AuthResponse(authenticated=True, message="Authenticated")
+    actor = request.client.host if request.client else "unknown"
+    if auth_service.passwords_match(auth.password, settings.SUPER_USER_PASSWORD):
+        token = auth_service.create_token(settings.SUPER_USER_PASSWORD)
+        await log_audit(actor, "auth attempt", "super-user login", success=True)
+        return AuthResponse(authenticated=True, message="Authenticated", token=token)
+    # Audit failed attempts so brute-force probes leave a forensic trail.
+    await log_audit(actor, "auth attempt", "super-user login", success=False, error="invalid password")
     return AuthResponse(authenticated=False, message="Invalid password")
 
 
-def require_super_user(x_super_user_password: str = Header("", alias="X-Super-User-Password")) -> str:
-    """FastAPI dependency: require valid super user password for write operations.
+def _audit_action(request: Request) -> str:
+    """Human-readable action label from the matched route, e.g. 'POST create ip pool'."""
+    route_name = getattr(request.scope.get("route"), "name", "") or "write"
+    friendly = route_name.replace("_endpoint", "").replace("_", " ").strip()
+    return f"{request.method} {friendly}".strip()
 
-    If SUPER_USER_PASSWORD is not set (empty), all operations are allowed.
-    Otherwise the header must match.
+
+async def _audit_target(request: Request) -> str:
+    """Describe the affected resource: path params, or the name in a JSON body."""
+    params = request.path_params
+    parts = []
+    if params.get("namespace"):
+        parts.append(str(params["namespace"]))
+    if params.get("name"):
+        parts.append(str(params["name"]))
+    if parts:
+        return "/".join(parts)
+    # Create endpoints carry the resource name in the request body.
+    try:
+        body = await request.json()
+        if isinstance(body, dict):
+            name = body.get("name") or body.get("image") or ""
+            if name:
+                return str(name)[:120]
+    except Exception:
+        pass
+    return f"{request.method} {request.url.path}"
+
+
+async def require_super_user(
+    request: Request,
+    x_super_user_token: str = Header("", alias=_TOKEN_HEADER),
+) -> str:
+    """FastAPI dependency: require a valid super-user session token for writes.
+
+    Tokens are minted by POST /api/config/auth and are valid for 15 minutes.
+    Every write operation (POST/PUT/DELETE/PATCH) is recorded in the audit log
+    with actor (client IP), action, target and outcome.
+
+    If SUPER_USER_PASSWORD is not set (empty), all operations are allowed
+    (no-password mode) and writes are still audited.
     """
     from config import get_settings
     settings = get_settings()
+
+    is_write = request.method in ("POST", "PUT", "DELETE", "PATCH")
+
     if not settings.SUPER_USER_PASSWORD:
-        return "no-password-mode"
-    if x_super_user_password != settings.SUPER_USER_PASSWORD:
-        raise HTTPException(status_code=401, detail="Invalid or missing super user password. Set X-Super-User-Password header.")
-    return x_super_user_password
+        if not is_write:
+            yield "no-password-mode"
+            return
+        actor = request.client.host if request.client else "unknown"
+        action = _audit_action(request)
+        target = await _audit_target(request)
+        try:
+            yield "no-password-mode"
+        except Exception as e:
+            await log_audit(actor, action, target, success=False, error=str(e))
+            raise
+        await log_audit(actor, action, target, success=True)
+        return
+
+    if not auth_service.verify_token(x_super_user_token, settings.SUPER_USER_PASSWORD):
+        if is_write:
+            actor = request.client.host if request.client else "unknown"
+            await log_audit(
+                actor,
+                _audit_action(request),
+                await _audit_target(request),
+                success=False,
+                error="invalid or expired token",
+            )
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired super user session. Re-authenticate via POST /api/config/auth.",
+        )
+
+    if not is_write:
+        yield "super-user"
+        return
+
+    actor = request.client.host if request.client else "unknown"
+    action = _audit_action(request)
+    target = await _audit_target(request)
+    try:
+        yield "super-user"
+    except Exception as e:
+        await log_audit(actor, action, target, success=False, error=str(e))
+        raise
+    await log_audit(actor, action, target, success=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -351,6 +450,71 @@ def _fmt_svc_ports(ports) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  KUBERNETES API ERROR MAPPING
+# ═══════════════════════════════════════════════════════════════════
+
+# Map Kubernetes API server status codes to human-readable guidance so
+# users get actionable responses instead of raw str(e) dumps / generic 500s.
+_K8S_STATUS_HINTS = {
+    400: "Kubernetes API rejected the request as invalid (400).",
+    403: "Permission denied by Kubernetes RBAC — the dashboard service account lacks the required permissions for this resource.",
+    404: "Resource not found in the cluster. It may have been deleted or never existed.",
+    409: "Conflict — the resource already exists or was modified concurrently. Refresh and try again.",
+    422: "Kubernetes API rejected the resource as invalid (422).",
+    503: "Kubernetes API server is temporarily unavailable.",
+}
+
+
+def _k8s_api_message(exc: ApiException) -> str:
+    """Extract a readable message from a kubernetes_asyncio ApiException.
+
+    The raw str(exc) is a huge multi-line dump of status/reason/headers/body.
+    The useful part lives in the JSON 'message' field of the HTTP response
+    body, e.g. nodes \"masternode\" is forbidden: User cannot patch resource...
+    """
+    body = getattr(exc, "body", None) or ""
+    # body is normally a JSON string, but some client paths yield a parsed dict.
+    parsed = None
+    if isinstance(body, str) and body.strip():
+        import json
+        try:
+            parsed = json.loads(body)
+        except (ValueError, TypeError):
+            parsed = None
+    elif isinstance(body, dict):
+        parsed = body
+    if isinstance(parsed, dict):
+        msg = parsed.get("message")
+        if msg:
+            return msg
+    reason = getattr(exc, "reason", None) or "Kubernetes API error"
+    status = getattr(exc, "status", None)
+    return f"{reason} (HTTP {status})" if status else reason
+
+
+def _raise_k8s_error(exc: Exception, context: str) -> None:
+    """Map an exception from a Kubernetes API call to a clean HTTP response.
+
+    kubernetes_asyncio.ApiException carries a real HTTP status — forward the
+    meaningful ones (403 RBAC, 404 not found, 409 conflict, ...) with a
+    readable detail instead of a raw str(exc) 500. HTTPException passes
+    through untouched. Anything else becomes a logged 500.
+    """
+    if isinstance(exc, HTTPException):
+        raise exc
+    if isinstance(exc, ApiException):
+        status = exc.status or 500
+        detail = _k8s_api_message(exc)
+        hint = _K8S_STATUS_HINTS.get(status)
+        if hint:
+            detail = f"{hint} — {detail}".strip()
+        logger.error(f"{context}: Kubernetes API error {status}: {detail}")
+        raise HTTPException(status_code=status, detail=detail)
+    logger.error(f"{context}: {exc}")
+    raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  WRITE ENDPOINTS (super user auth required)
 # ═══════════════════════════════════════════════════════════════════
 
@@ -364,8 +528,7 @@ async def create_ip_pool_endpoint(pool: IPPoolCreate, api_client=Depends(get_k8s
         await config_service.create_ip_pool(api_client, pool.model_dump())
         return {"status": "success", "data": {"name": pool.name, "cidr": pool.cidr}}
     except Exception as e:
-        logger.error(f"Create IP pool failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, "Create IP pool")
 
 @router.put("/ippools/{name}")
 async def update_ip_pool_endpoint(name: str, pool: IPPoolUpdate, api_client=Depends(get_k8s_client), _su=Depends(require_super_user)) -> Dict[str, Any]:
@@ -376,8 +539,7 @@ async def update_ip_pool_endpoint(name: str, pool: IPPoolUpdate, api_client=Depe
         await config_service.update_ip_pool(api_client, name, update_data)
         return {"status": "success", "data": {"name": name}}
     except Exception as e:
-        logger.error(f"Update IP pool {name} failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, f"Update IP pool {name}")
 
 @router.delete("/ippools/{name}")
 async def delete_ip_pool_endpoint(name: str, api_client=Depends(get_k8s_client), _su=Depends(require_super_user)) -> Dict[str, Any]:
@@ -387,8 +549,7 @@ async def delete_ip_pool_endpoint(name: str, api_client=Depends(get_k8s_client),
         await config_service.delete_ip_pool(api_client, name)
         return {"status": "success", "data": {"name": name}}
     except Exception as e:
-        logger.error(f"Delete IP pool {name} failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, f"Delete IP pool {name}")
 
 # ─── BGP Peer write ─────────────────────────────────────────────
 
@@ -400,8 +561,7 @@ async def create_bgp_peer_endpoint(peer: BGPPeerCreate, api_client=Depends(get_k
         await config_service.create_bgp_peer(api_client, peer.model_dump())
         return {"status": "success", "data": {"name": peer.name, "peer_ip": peer.peer_ip}}
     except Exception as e:
-        logger.error(f"Create BGP peer failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, "Create BGP peer")
 
 @router.put("/bgppeers/{name}")
 async def update_bgp_peer_endpoint(name: str, peer: BGPPeerUpdate, api_client=Depends(get_k8s_client), _su=Depends(require_super_user)) -> Dict[str, Any]:
@@ -412,8 +572,7 @@ async def update_bgp_peer_endpoint(name: str, peer: BGPPeerUpdate, api_client=De
         await config_service.update_bgp_peer(api_client, name, update_data)
         return {"status": "success", "data": {"name": name}}
     except Exception as e:
-        logger.error(f"Update BGP peer {name} failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, f"Update BGP peer {name}")
 
 @router.delete("/bgppeers/{name}")
 async def delete_bgp_peer_endpoint(name: str, api_client=Depends(get_k8s_client), _su=Depends(require_super_user)) -> Dict[str, Any]:
@@ -423,8 +582,7 @@ async def delete_bgp_peer_endpoint(name: str, api_client=Depends(get_k8s_client)
         await config_service.delete_bgp_peer(api_client, name)
         return {"status": "success", "data": {"name": name}}
     except Exception as e:
-        logger.error(f"Delete BGP peer {name} failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, f"Delete BGP peer {name}")
 
 # ─── Namespace write ────────────────────────────────────────────
 
@@ -436,7 +594,7 @@ async def create_namespace_endpoint(ns: NamespaceCreate, api_client=Depends(get_
         await config_service.create_namespace(api_client, ns.name)
         return {"status": "success", "data": {"name": ns.name}}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, "Create namespace")
 
 @router.delete("/namespaces/{name}")
 async def delete_namespace_endpoint(name: str, api_client=Depends(get_k8s_client), _su=Depends(require_super_user)) -> Dict[str, Any]:
@@ -446,7 +604,7 @@ async def delete_namespace_endpoint(name: str, api_client=Depends(get_k8s_client
         await config_service.delete_namespace(api_client, name)
         return {"status": "success", "data": {"name": name}}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, f"Delete namespace {name}")
 
 # ─── Service write ──────────────────────────────────────────────
 
@@ -458,7 +616,7 @@ async def create_service_endpoint(svc: ServiceCreate, api_client=Depends(get_k8s
         await config_service.create_service(api_client, svc.model_dump())
         return {"status": "success", "data": {"name": svc.name, "namespace": svc.namespace}}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, "Create service")
 
 @router.put("/services/{namespace}/{name}")
 async def update_service_endpoint(namespace: str, name: str, svc: ServiceUpdate, api_client=Depends(get_k8s_client), _su=Depends(require_super_user)) -> Dict[str, Any]:
@@ -469,7 +627,7 @@ async def update_service_endpoint(namespace: str, name: str, svc: ServiceUpdate,
         await config_service.update_service(api_client, namespace, name, update_data)
         return {"status": "success", "data": {"name": name}}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, f"Update service {namespace}/{name}")
 
 @router.delete("/services/{namespace}/{name}")
 async def delete_service_endpoint(namespace: str, name: str, api_client=Depends(get_k8s_client), _su=Depends(require_super_user)) -> Dict[str, Any]:
@@ -479,7 +637,7 @@ async def delete_service_endpoint(namespace: str, name: str, api_client=Depends(
         await config_service.delete_service(api_client, namespace, name)
         return {"status": "success", "data": {"name": name}}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, f"Delete service {namespace}/{name}")
 
 # ─── ConfigMap write ────────────────────────────────────────────
 
@@ -491,7 +649,7 @@ async def create_configmap_endpoint(cm: ConfigMapCreate, api_client=Depends(get_
         await config_service.create_configmap(api_client, cm.model_dump())
         return {"status": "success", "data": {"name": cm.name, "namespace": cm.namespace}}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, "Create configmap")
 
 @router.put("/configmaps/{namespace}/{name}")
 async def update_configmap_endpoint(namespace: str, name: str, cm: ConfigMapUpdate, api_client=Depends(get_k8s_client), _su=Depends(require_super_user)) -> Dict[str, Any]:
@@ -501,7 +659,7 @@ async def update_configmap_endpoint(namespace: str, name: str, cm: ConfigMapUpda
         await config_service.update_configmap(api_client, namespace, name, cm.model_dump())
         return {"status": "success", "data": {"name": name}}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, f"Update configmap {namespace}/{name}")
 
 @router.delete("/configmaps/{namespace}/{name}")
 async def delete_configmap_endpoint(namespace: str, name: str, api_client=Depends(get_k8s_client), _su=Depends(require_super_user)) -> Dict[str, Any]:
@@ -511,7 +669,7 @@ async def delete_configmap_endpoint(namespace: str, name: str, api_client=Depend
         await config_service.delete_configmap(api_client, namespace, name)
         return {"status": "success", "data": {"name": name}}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, f"Delete configmap {namespace}/{name}")
 
 # ─── Secret write ───────────────────────────────────────────────
 
@@ -523,7 +681,7 @@ async def create_secret_endpoint(secret: SecretCreate, api_client=Depends(get_k8
         await config_service.create_secret(api_client, secret.model_dump())
         return {"status": "success", "data": {"name": secret.name, "namespace": secret.namespace}}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, "Create secret")
 
 @router.put("/secrets/{namespace}/{name}")
 async def update_secret_endpoint(namespace: str, name: str, secret: SecretUpdate, api_client=Depends(get_k8s_client), _su=Depends(require_super_user)) -> Dict[str, Any]:
@@ -534,8 +692,7 @@ async def update_secret_endpoint(namespace: str, name: str, secret: SecretUpdate
         await config_service.update_secret(api_client, namespace, name, update_data)
         return {"status": "success", "data": {"name": name, "namespace": namespace}}
     except Exception as e:
-        logger.error(f"Update secret {namespace}/{name} failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, f"Update secret {namespace}/{name}")
 
 @router.delete("/secrets/{namespace}/{name}")
 async def delete_secret_endpoint(namespace: str, name: str, api_client=Depends(get_k8s_client), _su=Depends(require_super_user)) -> Dict[str, Any]:
@@ -545,7 +702,7 @@ async def delete_secret_endpoint(namespace: str, name: str, api_client=Depends(g
         await config_service.delete_secret(api_client, namespace, name)
         return {"status": "success", "data": {"name": name}}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, f"Delete secret {namespace}/{name}")
 
 # ─── Deployment write ─────────────────────────────────────────
 
@@ -557,8 +714,7 @@ async def create_deployment_endpoint(dep: DeploymentCreate, api_client=Depends(g
         await config_service.create_deployment(api_client, dep.model_dump())
         return {"status": "success", "data": {"name": dep.name, "namespace": dep.namespace}}
     except Exception as e:
-        logger.error(f"Create deployment failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, "Create deployment")
 
 @router.put("/deployments/{namespace}/{name}/image")
 async def update_deployment_image_endpoint(namespace: str, name: str, body: DeploymentImageUpdate, api_client=Depends(get_k8s_client), _su=Depends(require_super_user)) -> Dict[str, Any]:
@@ -568,8 +724,7 @@ async def update_deployment_image_endpoint(namespace: str, name: str, body: Depl
         await config_service.update_deployment_image(api_client, namespace, name, body.image)
         return {"status": "success", "data": {"name": name, "namespace": namespace, "image": body.image}}
     except Exception as e:
-        logger.error(f"Update deployment {namespace}/{name} image failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, f"Update deployment {namespace}/{name} image")
 
 # ─── Deployment operations ──────────────────────────────────────
 
@@ -581,7 +736,7 @@ async def scale_deployment_endpoint(namespace: str, name: str, req: ScaleRequest
         await config_service.scale_deployment(api_client, namespace, name, req.replicas)
         return {"status": "success", "data": {"name": name, "namespace": namespace, "replicas": req.replicas}}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, f"Scale deployment {namespace}/{name}")
 
 @router.post("/deployments/{namespace}/{name}/restart")
 async def restart_deployment_endpoint(namespace: str, name: str, api_client=Depends(get_k8s_client), _su=Depends(require_super_user)) -> Dict[str, Any]:
@@ -591,7 +746,7 @@ async def restart_deployment_endpoint(namespace: str, name: str, api_client=Depe
         await config_service.restart_deployment(api_client, namespace, name)
         return {"status": "success", "data": {"name": name, "namespace": namespace, "action": "restart"}}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, f"Restart deployment {namespace}/{name}")
 
 # ─── Node operations ────────────────────────────────────────────
 
@@ -603,7 +758,7 @@ async def cordon_node_endpoint(name: str, api_client=Depends(get_k8s_client), _s
         await config_service.cordon_node(api_client, name, True)
         return {"status": "success", "data": {"name": name, "action": "cordon"}}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, f"Cordon node {name}")
 
 @router.post("/nodes/{name}/uncordon")
 async def uncordon_node_endpoint(name: str, api_client=Depends(get_k8s_client), _su=Depends(require_super_user)) -> Dict[str, Any]:
@@ -613,7 +768,25 @@ async def uncordon_node_endpoint(name: str, api_client=Depends(get_k8s_client), 
         await config_service.cordon_node(api_client, name, False)
         return {"status": "success", "data": {"name": name, "action": "uncordon"}}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_k8s_error(e, f"Uncordon node {name}")
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  AUDIT LOG
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/audit")
+async def get_audit(
+    limit: int = Query(100, ge=1, le=500),
+    _su=Depends(require_super_user),
+) -> Dict[str, Any]:
+    """Return recent super-user write audit entries, newest first.
+
+    Each entry records actor (client IP), action, target and outcome.
+    Requires a valid super-user session token.
+    """
+    entries = await get_audit_log(limit)
+    return {"status": "success", "data": entries}
 
 
 # ═══════════════════════════════════════════════════════════════════
