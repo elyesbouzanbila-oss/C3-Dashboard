@@ -11,7 +11,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from config import Settings
-from dependencies import get_k8s_client, get_settings_dep
+from dependencies import get_k8s_client, get_settings_dep, fallback_response
 from models.mock_data import (
     MOCK_BGP_PEERS,
     MOCK_CALICO_NODES,
@@ -91,8 +91,11 @@ async def list_cni_nodes(
         data = await calico_service.get_calico_nodes(api_client)
         return {"status": "success", "data": data}
     except Exception as e:
-        logger.warning(f"CNI nodes failed: {e}, using mock data")
-        return {"status": "mock", "data": MOCK_CALICO_NODES}
+        logger.warning(f"CNI nodes failed: {e}")
+        return fallback_response(
+            {"status": "mock", "data": MOCK_CALICO_NODES},
+            {"status": "error", "data": [], "error": str(e)},
+        )
 
 
 @router.get("/bgp-peers")
@@ -104,8 +107,11 @@ async def list_bgp_peers(
         data = await calico_service.get_bgp_peers(api_client)
         return {"status": "success", "data": data}
     except Exception as e:
-        logger.warning(f"CNI BGP peers failed: {e}, using mock data")
-        return {"status": "mock", "data": MOCK_BGP_PEERS}
+        logger.warning(f"CNI BGP peers failed: {e}")
+        return fallback_response(
+            {"status": "mock", "data": MOCK_BGP_PEERS},
+            {"status": "error", "data": [], "error": str(e)},
+        )
 
 
 @router.get("/ippools")
@@ -117,8 +123,11 @@ async def list_ip_pools(
         data = await calico_service.get_ip_pools(api_client)
         return {"status": "success", "data": data}
     except Exception as e:
-        logger.warning(f"CNI IP pools failed: {e}, using mock data")
-        return {"status": "mock", "data": MOCK_IP_POOLS}
+        logger.warning(f"CNI IP pools failed: {e}")
+        return fallback_response(
+            {"status": "mock", "data": MOCK_IP_POOLS},
+            {"status": "error", "data": [], "error": str(e)},
+        )
 
 
 @router.get("/ipam/utilization")
@@ -130,8 +139,11 @@ async def ipam_utilization(
         data = await calico_service.get_ipam_utilization(api_client)
         return {"status": "success", "data": data}
     except Exception as e:
-        logger.warning(f"CNI IPAM utilization failed: {e}, using mock data")
-        return {"status": "mock", "data": MOCK_IPAM_BLOCKS}
+        logger.warning(f"CNI IPAM utilization failed: {e}")
+        return fallback_response(
+            {"status": "mock", "data": MOCK_IPAM_BLOCKS},
+            {"status": "error", "data": [], "error": str(e)},
+        )
 
 
 @router.get("/policies")
@@ -143,8 +155,11 @@ async def list_cni_policies(
         data = await calico_service.get_cni_policies(api_client)
         return {"status": "success", "data": data}
     except Exception as e:
-        logger.warning(f"CNI policies failed: {e}, using mock data")
-        return {"status": "mock", "data": MOCK_CNI_POLICIES}
+        logger.warning(f"CNI policies failed: {e}")
+        return fallback_response(
+            {"status": "mock", "data": MOCK_CNI_POLICIES},
+            {"status": "error", "data": [], "error": str(e)},
+        )
 
 
 @router.get("/policies/coverage")
@@ -180,9 +195,12 @@ async def policy_coverage(
         data = compute_policy_coverage(pod_dicts, policies_raw)
         return {"status": "success", "data": data}
     except Exception as e:
-        logger.warning(f"Policy coverage failed: {e}, using mock data")
+        logger.warning(f"Policy coverage failed: {e}")
         from models.mock_data import MOCK_COVERAGE
-        return {"status": "mock", "data": MOCK_COVERAGE}
+        return fallback_response(
+            {"status": "mock", "data": MOCK_COVERAGE},
+            {"status": "error", "data": [], "error": str(e)},
+        )
 
 
 @router.get("/topology")
@@ -194,10 +212,13 @@ async def cni_topology(
         data = await calico_service.get_cni_topology(api_client)
         return {"status": "success", "data": data}
     except Exception as e:
-        logger.warning(f"CNI topology failed: {e}, using mock data")
+        logger.warning(f"CNI topology failed: {e}")
         from models.mock_data import build_mock_topology
         mock = build_mock_topology()
-        return {"status": "mock", "data": mock}
+        return fallback_response(
+            {"status": "mock", "data": mock},
+            {"status": "error", "data": {"nodes": [], "edges": []}, "error": str(e)},
+        )
 
 
 @router.get("/metrics/felix")
@@ -216,11 +237,11 @@ async def felix_metrics(
 
         return response
     except Exception as e:
-        logger.warning(f"Felix metrics query failed: {e}, using mock data")
-        response: Dict[str, Any] = {"status": "mock", "data": MOCK_FELIX_METRICS}
-        if include_series:
-            response["time_series"] = {}
-        return response
+        logger.warning(f"Felix metrics query failed: {e}")
+        return fallback_response(
+            {"status": "mock", "data": MOCK_FELIX_METRICS, **({"time_series": {}} if include_series else {})},
+            {"status": "error", "data": {}, **({"time_series": {}} if include_series else {}), "error": str(e)},
+        )
 
 
 @router.post("/diagnostics/connectivity")
@@ -392,24 +413,39 @@ async def connectivity_diagnostics(
     except HTTPException:
         raise
     except Exception as e:
-        logger.warning(f"Connectivity diagnostics failed: {e}, using mock result")
-        return {
-            "status": "mock",
-            "data": {
-                "source": f"{source_namespace}/{source_pod}",
-                "target": (
-                    f"{target_namespace}/{target_service}:{target_port}" if target_service
-                    else f"{target_namespace}/{target_pod}:{target_port}"
-                ),
-                "reachable": True,
-                "latency_ms": 2.3,
-                "dns_result": "Mock DNS resolution successful",
-                "connection_output": "Connection to target succeeded",
-                "log_preview": "Mock diagnostic — K8s API not available",
-                "pod_phase": "Succeeded",
-                "test_duration_s": 1,
+        logger.warning(f"Connectivity diagnostics failed: {e}")
+        target = (
+            f"{target_namespace}/{target_service}:{target_port}" if target_service
+            else f"{target_namespace}/{target_pod}:{target_port}"
+        )
+        return fallback_response(
+            {
+                "status": "mock",
+                "data": {
+                    "source": f"{source_namespace}/{source_pod}",
+                    "target": target,
+                    "reachable": True,
+                    "latency_ms": 2.3,
+                    "dns_result": "Mock DNS resolution successful",
+                    "connection_output": "Connection to target succeeded",
+                    "log_preview": "Mock diagnostic — K8s API not available",
+                    "pod_phase": "Succeeded",
+                    "test_duration_s": 1,
+                },
             },
-        }
+            {
+                "status": "error",
+                "data": {
+                    "source": f"{source_namespace}/{source_pod}",
+                    "target": target,
+                    "reachable": None,
+                    "latency_ms": None,
+                    "note": f"Diagnostic could not run: {e}",
+                    "log_preview": "",
+                },
+                "error": str(e),
+            },
+        )
 
 
 def _parse_diag_logs(logs: str) -> Dict[str, Any]:

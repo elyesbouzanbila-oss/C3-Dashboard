@@ -75,7 +75,18 @@ class TestCniNodes:
         assert body["data"] == [{"node": "n1", "felix_ready": True}]
 
     @patch(PATCH_TARGET, new_callable=AsyncMock)
-    def test_mock_fallback(self, mock_fn):
+    def test_error_fallback(self, mock_fn, monkeypatch):
+        """K8s failure returns error status (mock data only in K8S_MODE=mock)."""
+        monkeypatch.delenv("K8S_MODE", raising=False)
+        mock_fn.side_effect = RuntimeError("no cluster")
+        body = assert_ok(client.get("/api/cni/nodes"), "error")
+        assert body["data"] == []
+        assert "no cluster" in body.get("error", "")
+
+    @patch(PATCH_TARGET, new_callable=AsyncMock)
+    def test_mock_mode_fallback(self, mock_fn, monkeypatch):
+        """With K8S_MODE=mock, the endpoint serves fabricated demo data."""
+        monkeypatch.setenv("K8S_MODE", "mock")
         mock_fn.side_effect = RuntimeError("no cluster")
         body = assert_ok(client.get("/api/cni/nodes"), "mock")
         for expected, actual in zip(MOCK_CALICO_NODES, body["data"]):
@@ -94,7 +105,16 @@ class TestCniBgpPeers:
         assert body["data"][0]["session_state"] == "up"
 
     @patch(PATCH_TARGET, new_callable=AsyncMock)
-    def test_mock_fallback(self, mock_fn):
+    def test_error_fallback(self, mock_fn, monkeypatch):
+        """K8s failure returns error status (mock data only in K8S_MODE=mock)."""
+        monkeypatch.delenv("K8S_MODE", raising=False)
+        mock_fn.side_effect = RuntimeError("no cluster")
+        body = assert_ok(client.get("/api/cni/bgp-peers"), "error")
+        assert body["data"] == []
+
+    @patch(PATCH_TARGET, new_callable=AsyncMock)
+    def test_mock_mode_fallback(self, mock_fn, monkeypatch):
+        monkeypatch.setenv("K8S_MODE", "mock")
         mock_fn.side_effect = RuntimeError("no cluster")
         body = assert_ok(client.get("/api/cni/bgp-peers"), "mock")
         assert body["data"] == MOCK_BGP_PEERS
@@ -110,7 +130,16 @@ class TestCniIpPools:
         assert body["data"] == [{"name": "pool-1", "cidr": "10.0.0.0/16"}]
 
     @patch(PATCH_TARGET, new_callable=AsyncMock)
-    def test_mock_fallback(self, mock_fn):
+    def test_error_fallback(self, mock_fn, monkeypatch):
+        """K8s failure returns error status (mock data only in K8S_MODE=mock)."""
+        monkeypatch.delenv("K8S_MODE", raising=False)
+        mock_fn.side_effect = RuntimeError("no cluster")
+        body = assert_ok(client.get("/api/cni/ippools"), "error")
+        assert body["data"] == []
+
+    @patch(PATCH_TARGET, new_callable=AsyncMock)
+    def test_mock_mode_fallback(self, mock_fn, monkeypatch):
+        monkeypatch.setenv("K8S_MODE", "mock")
         mock_fn.side_effect = RuntimeError("no cluster")
         body = assert_ok(client.get("/api/cni/ippools"), "mock")
         assert body["data"] == MOCK_IP_POOLS
@@ -126,7 +155,16 @@ class TestCniIpamUtilization:
         assert body["data"][0]["utilization_pct"] == 9.4
 
     @patch(PATCH_TARGET, new_callable=AsyncMock)
-    def test_mock_fallback(self, mock_fn):
+    def test_error_fallback(self, mock_fn, monkeypatch):
+        """K8s failure returns error status (mock data only in K8S_MODE=mock)."""
+        monkeypatch.delenv("K8S_MODE", raising=False)
+        mock_fn.side_effect = RuntimeError("no cluster")
+        body = assert_ok(client.get("/api/cni/ipam/utilization"), "error")
+        assert body["data"] == []
+
+    @patch(PATCH_TARGET, new_callable=AsyncMock)
+    def test_mock_mode_fallback(self, mock_fn, monkeypatch):
+        monkeypatch.setenv("K8S_MODE", "mock")
         mock_fn.side_effect = RuntimeError("no cluster")
         body = assert_ok(client.get("/api/cni/ipam/utilization"), "mock")
         assert body["data"] == MOCK_IPAM_BLOCKS
@@ -142,7 +180,16 @@ class TestCniPolicies:
         assert body["data"][0]["rules_count"] == 2
 
     @patch(PATCH_TARGET, new_callable=AsyncMock)
-    def test_mock_fallback(self, mock_fn):
+    def test_error_fallback(self, mock_fn, monkeypatch):
+        """K8s failure returns error status (mock data only in K8S_MODE=mock)."""
+        monkeypatch.delenv("K8S_MODE", raising=False)
+        mock_fn.side_effect = RuntimeError("no cluster")
+        body = assert_ok(client.get("/api/cni/policies"), "error")
+        assert body["data"] == []
+
+    @patch(PATCH_TARGET, new_callable=AsyncMock)
+    def test_mock_mode_fallback(self, mock_fn, monkeypatch):
+        monkeypatch.setenv("K8S_MODE", "mock")
         mock_fn.side_effect = RuntimeError("no cluster")
         body = assert_ok(client.get("/api/cni/policies"), "mock")
         assert body["data"] == MOCK_CNI_POLICIES
@@ -161,7 +208,16 @@ class TestCniTopology:
         assert len(body["data"]["nodes"]) == 1
 
     @patch(PATCH_TARGET, new_callable=AsyncMock)
-    def test_mock_fallback(self, mock_fn):
+    def test_error_fallback(self, mock_fn, monkeypatch):
+        """K8s failure returns error status (mock data only in K8S_MODE=mock)."""
+        monkeypatch.delenv("K8S_MODE", raising=False)
+        mock_fn.side_effect = RuntimeError("no cluster")
+        body = assert_ok(client.get("/api/cni/topology"), "error")
+        assert body["data"] == {"nodes": [], "edges": []}
+
+    @patch(PATCH_TARGET, new_callable=AsyncMock)
+    def test_mock_mode_fallback(self, mock_fn, monkeypatch):
+        monkeypatch.setenv("K8S_MODE", "mock")
         mock_fn.side_effect = RuntimeError("no cluster")
         body = assert_ok(client.get("/api/cni/topology"), "mock")
         assert len(body["data"]["nodes"]) > 0
@@ -193,7 +249,16 @@ class TestCniFelixMetrics:
             assert len(body["time_series"]["active_local_endpoints"]) == 1
 
     @patch(PATCH_GAUGES, new_callable=AsyncMock)
-    def test_mock_fallback(self, mock_gauges):
+    def test_error_fallback(self, mock_gauges, monkeypatch):
+        """Prometheus failure returns error status (mock data only in K8S_MODE=mock)."""
+        monkeypatch.delenv("K8S_MODE", raising=False)
+        mock_gauges.side_effect = RuntimeError("Prometheus unreachable")
+        body = assert_ok(client.get("/api/cni/metrics/felix"), "error")
+        assert body["data"] == {}
+
+    @patch(PATCH_GAUGES, new_callable=AsyncMock)
+    def test_mock_mode_fallback(self, mock_gauges, monkeypatch):
+        monkeypatch.setenv("K8S_MODE", "mock")
         mock_gauges.side_effect = RuntimeError("Prometheus unreachable")
         body = assert_ok(client.get("/api/cni/metrics/felix"), "mock")
         assert body["data"] == MOCK_FELIX_METRICS
@@ -227,8 +292,18 @@ class TestCniPolicyCoverage:
 
     @patch(PATCH_TARGET, new_callable=AsyncMock)
     @patch(PATCH_POLICIES, new_callable=AsyncMock)
-    def test_mock_fallback(self, mock_policies, mock_pods):
-        """When K8s services fail, fall back to MOCK_COVERAGE."""
+    def test_error_fallback(self, mock_policies, mock_pods, monkeypatch):
+        """K8s failure returns error status (mock data only in K8S_MODE=mock)."""
+        monkeypatch.delenv("K8S_MODE", raising=False)
+        mock_pods.side_effect = RuntimeError("no cluster")
+        body = assert_ok(client.get("/api/cni/policies/coverage"), "error")
+        assert body["data"] == []
+
+    @patch(PATCH_TARGET, new_callable=AsyncMock)
+    @patch(PATCH_POLICIES, new_callable=AsyncMock)
+    def test_mock_mode_fallback(self, mock_policies, mock_pods, monkeypatch):
+        """With K8S_MODE=mock, fall back to MOCK_COVERAGE."""
+        monkeypatch.setenv("K8S_MODE", "mock")
         mock_pods.side_effect = RuntimeError("no cluster")
         body = assert_ok(client.get("/api/cni/policies/coverage"), "mock")
         assert len(body["data"]) > 0
@@ -250,8 +325,31 @@ class TestCniConnectivityDiagnostics:
         assert resp.status_code == 400, f"Expected 400, got {resp.status_code}: {resp.text[:200]}"
 
     @patch("kubernetes_asyncio.client.CoreV1Api")
-    def test_mock_fallback(self, mock_core_v1):
-        """When K8s is unavailable, the endpoint falls back to mock data."""
+    def test_error_fallback(self, mock_core_v1, monkeypatch):
+        """When K8s is unavailable, the endpoint returns an error status."""
+        monkeypatch.delenv("K8S_MODE", raising=False)
+        mock_core_v1.side_effect = RuntimeError("no cluster")
+        body = assert_ok(
+            client.post(
+                "/api/cni/diagnostics/connectivity",
+                params={
+                    "source_pod": "my-pod",
+                    "source_namespace": "default",
+                    "target_service": "my-svc",
+                    "target_namespace": "default",
+                    "target_port": 80,
+                },
+                headers=self._AUTH_HEADERS,
+            ),
+            "error",
+        )
+        assert body["data"]["reachable"] is None
+        assert "Diagnostic could not run" in body["data"]["note"]
+
+    @patch("kubernetes_asyncio.client.CoreV1Api")
+    def test_mock_mode_fallback(self, mock_core_v1, monkeypatch):
+        """With K8S_MODE=mock, the endpoint serves a fabricated success result."""
+        monkeypatch.setenv("K8S_MODE", "mock")
         mock_core_v1.side_effect = RuntimeError("no cluster")
         body = assert_ok(
             client.post(
@@ -275,8 +373,18 @@ class TestCniConnectivityDiagnostics:
 
 class TestNetworkPods:
     @patch("kubernetes_asyncio.client.CoreV1Api")
-    def test_mock_fallback(self, mock_core_v1):
-        """When K8s is unavailable, the endpoint falls back to mock data."""
+    def test_error_fallback(self, mock_core_v1, monkeypatch):
+        """When K8s is unavailable, the endpoint returns an error status."""
+        monkeypatch.delenv("K8S_MODE", raising=False)
+        mock_core_v1.side_effect = RuntimeError("no cluster")
+        body = assert_ok(client.get("/api/network/pods"), "error")
+        assert "items" in body
+        assert body["items"] == []
+
+    @patch("kubernetes_asyncio.client.CoreV1Api")
+    def test_mock_mode_fallback(self, mock_core_v1, monkeypatch):
+        """With K8S_MODE=mock, serve MOCK_PODS."""
+        monkeypatch.setenv("K8S_MODE", "mock")
         mock_core_v1.side_effect = RuntimeError("no cluster")
         body = assert_ok(client.get("/api/network/pods"), "mock")
         assert "items" in body
@@ -286,7 +394,17 @@ class TestNetworkPods:
 
 class TestNetworkTopology:
     @patch("kubernetes_asyncio.client.CoreV1Api")
-    def test_mock_fallback(self, mock_core_v1):
+    def test_error_fallback(self, mock_core_v1, monkeypatch):
+        monkeypatch.delenv("K8S_MODE", raising=False)
+        mock_core_v1.side_effect = RuntimeError("no cluster")
+        body = assert_ok(client.get("/api/network/topology"), "error")
+        assert "nodes" in body
+        assert "edges" in body
+        assert body["nodes"] == []
+
+    @patch("kubernetes_asyncio.client.CoreV1Api")
+    def test_mock_mode_fallback(self, mock_core_v1, monkeypatch):
+        monkeypatch.setenv("K8S_MODE", "mock")
         mock_core_v1.side_effect = RuntimeError("no cluster")
         body = assert_ok(client.get("/api/network/topology"), "mock")
         assert "nodes" in body

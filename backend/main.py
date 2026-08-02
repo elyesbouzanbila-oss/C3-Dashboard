@@ -44,7 +44,10 @@ async def lifespan(app: FastAPI):
         await client.close()
         logger.info("Kubernetes API connection OK")
     except Exception as e:
-        logger.warning(f"Kubernetes API connection failed: {e} — endpoints will use mock data")
+        logger.warning(
+            f"Kubernetes API connection failed: {e} — endpoints will return error "
+            "responses (mock data only in opt-in demo mode K8S_MODE=mock)"
+        )
 
     # ── Falco webhook secret check ────────────────────────────
     settings_ = get_settings()

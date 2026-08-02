@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from dependencies import get_k8s_client
+from dependencies import get_k8s_client, fallback_response
 from services import config_service, calico_service, auth_service
 from services.audit_service import get_audit_log, log_audit
 from services.logging_service import get_logger
@@ -282,29 +282,44 @@ class RestartResponse(BaseModel):
 @router.get("/ippools")
 async def list_ip_pools(api_client=Depends(get_k8s_client)) -> Dict[str, Any]:
     if api_client is None:
-        return {"status": "mock", "data": MOCK_IP_POOLS}
+        return fallback_response(
+            {"status": "mock", "data": MOCK_IP_POOLS},
+            {"status": "error", "data": [], "error": "Kubernetes API unavailable"},
+        )
     try:
         data = await calico_service.get_ip_pools(api_client)
         return {"status": "success", "data": data}
     except Exception as e:
         logger.warning(f"List IP pools failed: {e}")
-        return {"status": "mock", "data": MOCK_IP_POOLS}
+        return fallback_response(
+            {"status": "mock", "data": MOCK_IP_POOLS},
+            {"status": "error", "data": [], "error": str(e)},
+        )
 
 @router.get("/bgppeers")
 async def list_bgp_peers(api_client=Depends(get_k8s_client)) -> Dict[str, Any]:
     if api_client is None:
-        return {"status": "mock", "data": MOCK_BGP_PEERS}
+        return fallback_response(
+            {"status": "mock", "data": MOCK_BGP_PEERS},
+            {"status": "error", "data": [], "error": "Kubernetes API unavailable"},
+        )
     try:
         data = await calico_service.get_bgp_peers(api_client)
         return {"status": "success", "data": data}
     except Exception as e:
         logger.warning(f"List BGP peers failed: {e}")
-        return {"status": "mock", "data": MOCK_BGP_PEERS}
+        return fallback_response(
+            {"status": "mock", "data": MOCK_BGP_PEERS},
+            {"status": "error", "data": [], "error": str(e)},
+        )
 
 @router.get("/namespaces")
 async def list_namespaces(api_client=Depends(get_k8s_client)) -> Dict[str, Any]:
     if api_client is None:
-        return {"status": "mock", "data": [{"name": "default"}, {"name": "kube-system"}, {"name": "production"}, {"name": "monitoring"}]}
+        return fallback_response(
+            {"status": "mock", "data": [{"name": "default"}, {"name": "kube-system"}, {"name": "production"}, {"name": "monitoring"}]},
+            {"status": "error", "data": [], "error": "Kubernetes API unavailable"},
+        )
     try:
         from kubernetes_asyncio import client as k8s_client
         v1 = k8s_client.CoreV1Api(api_client)
@@ -318,7 +333,10 @@ async def list_namespaces(api_client=Depends(get_k8s_client)) -> Dict[str, Any]:
 @router.get("/services")
 async def list_services(api_client=Depends(get_k8s_client), namespace: str = "") -> Dict[str, Any]:
     if api_client is None:
-        return {"status": "mock", "data": [{"name": "kube-dns", "namespace": "kube-system", "cluster_ip": "10.100.0.10", "type": "ClusterIP", "ports": "dns-udp:53/UDP, dns-tcp:53/TCP, metrics:9153/TCP"}, {"name": "api-service", "namespace": "production", "cluster_ip": "10.100.1.1", "type": "ClusterIP", "ports": "http:80/TCP"}]}
+        return fallback_response(
+            {"status": "mock", "data": [{"name": "kube-dns", "namespace": "kube-system", "cluster_ip": "10.100.0.10", "type": "ClusterIP", "ports": "dns-udp:53/UDP, dns-tcp:53/TCP, metrics:9153/TCP"}, {"name": "api-service", "namespace": "production", "cluster_ip": "10.100.1.1", "type": "ClusterIP", "ports": "http:80/TCP"}]},
+            {"status": "error", "data": [], "error": "Kubernetes API unavailable"},
+        )
     try:
         from kubernetes_asyncio import client as k8s_client
         v1 = k8s_client.CoreV1Api(api_client)
@@ -335,7 +353,10 @@ async def list_services(api_client=Depends(get_k8s_client), namespace: str = "")
 @router.get("/configmaps")
 async def list_configmaps(api_client=Depends(get_k8s_client), namespace: str = "") -> Dict[str, Any]:
     if api_client is None:
-        return {"status": "mock", "data": [{"name": "kube-dns-config", "namespace": "kube-system", "keys": ["Corefile", "upstreamNameservers"]}, {"name": "app-config", "namespace": "production", "keys": ["config.yaml", "env"]}]}
+        return fallback_response(
+            {"status": "mock", "data": [{"name": "kube-dns-config", "namespace": "kube-system", "keys": ["Corefile", "upstreamNameservers"]}, {"name": "app-config", "namespace": "production", "keys": ["config.yaml", "env"]}]},
+            {"status": "error", "data": [], "error": "Kubernetes API unavailable"},
+        )
     try:
         from kubernetes_asyncio import client as k8s_client
         v1 = k8s_client.CoreV1Api(api_client)
@@ -352,7 +373,10 @@ async def list_configmaps(api_client=Depends(get_k8s_client), namespace: str = "
 @router.get("/secrets")
 async def list_secrets(api_client=Depends(get_k8s_client), namespace: str = "") -> Dict[str, Any]:
     if api_client is None:
-        return {"status": "mock", "data": [{"name": "default-token", "namespace": "default", "type": "kubernetes.io/service-account-token", "keys": ["ca.crt", "token"]}, {"name": "db-credentials", "namespace": "production", "type": "Opaque", "keys": ["username", "password"]}]}
+        return fallback_response(
+            {"status": "mock", "data": [{"name": "default-token", "namespace": "default", "type": "kubernetes.io/service-account-token", "keys": ["ca.crt", "token"]}, {"name": "db-credentials", "namespace": "production", "type": "Opaque", "keys": ["username", "password"]}]},
+            {"status": "error", "data": [], "error": "Kubernetes API unavailable"},
+        )
     try:
         from kubernetes_asyncio import client as k8s_client
         v1 = k8s_client.CoreV1Api(api_client)
@@ -370,7 +394,10 @@ async def list_secrets(api_client=Depends(get_k8s_client), namespace: str = "") 
 async def get_configmap_detail(namespace: str, name: str, api_client=Depends(get_k8s_client)) -> Dict[str, Any]:
     """Full ConfigMap detail including data — for the edit form."""
     if api_client is None:
-        return {"status": "mock", "data": {"name": name, "namespace": namespace, "data": {}}}
+        return fallback_response(
+            {"status": "mock", "data": {"name": name, "namespace": namespace, "data": {}}},
+            {"status": "error", "data": {}, "error": "Kubernetes API unavailable"},
+        )
     try:
         from kubernetes_asyncio import client as k8s_client
         v1 = k8s_client.CoreV1Api(api_client)
@@ -384,7 +411,10 @@ async def get_configmap_detail(namespace: str, name: str, api_client=Depends(get
 async def get_secret_detail(namespace: str, name: str, api_client=Depends(get_k8s_client)) -> Dict[str, Any]:
     """Full Secret detail including base64 data — for the edit form."""
     if api_client is None:
-        return {"status": "mock", "data": {"name": name, "namespace": namespace, "type": "Opaque", "data": {}}}
+        return fallback_response(
+            {"status": "mock", "data": {"name": name, "namespace": namespace, "type": "Opaque", "data": {}}},
+            {"status": "error", "data": {}, "error": "Kubernetes API unavailable"},
+        )
     try:
         from kubernetes_asyncio import client as k8s_client
         v1 = k8s_client.CoreV1Api(api_client)
@@ -397,7 +427,10 @@ async def get_secret_detail(namespace: str, name: str, api_client=Depends(get_k8
 @router.get("/deployments")
 async def list_deployments(api_client=Depends(get_k8s_client), namespace: str = "") -> Dict[str, Any]:
     if api_client is None:
-        return {"status": "mock", "data": [{"name": "coredns", "namespace": "kube-system", "replicas": 2, "ready_replicas": 2, "image": "registry.k8s.io/coredns:v1.10.1"}, {"name": "api-server", "namespace": "production", "replicas": 3, "ready_replicas": 3, "image": "myapp:v2.1.0"}, {"name": "redis-cache", "namespace": "production", "replicas": 1, "ready_replicas": 1, "image": "redis:7-alpine"}]}
+        return fallback_response(
+            {"status": "mock", "data": [{"name": "coredns", "namespace": "kube-system", "replicas": 2, "ready_replicas": 2, "image": "registry.k8s.io/coredns:v1.10.1"}, {"name": "api-server", "namespace": "production", "replicas": 3, "ready_replicas": 3, "image": "myapp:v2.1.0"}, {"name": "redis-cache", "namespace": "production", "replicas": 1, "ready_replicas": 1, "image": "redis:7-alpine"}]},
+            {"status": "error", "data": [], "error": "Kubernetes API unavailable"},
+        )
     try:
         from kubernetes_asyncio import client as k8s_client
         apps = k8s_client.AppsV1Api(api_client)
@@ -415,7 +448,10 @@ async def list_deployments(api_client=Depends(get_k8s_client), namespace: str = 
 async def list_cluster_nodes(api_client=Depends(get_k8s_client)) -> Dict[str, Any]:
     if api_client is None:
         from models.mock_data import MOCK_NODES
-        return {"status": "mock", "data": MOCK_NODES}
+        return fallback_response(
+            {"status": "mock", "data": MOCK_NODES},
+            {"status": "error", "data": [], "error": "Kubernetes API unavailable"},
+        )
     try:
         from kubernetes_asyncio import client as k8s_client
         v1 = k8s_client.CoreV1Api(api_client)

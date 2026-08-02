@@ -214,6 +214,71 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* ─── DEMO DATA banner ───────────────────────────────────────── */
+/* Persistent amber banner shown whenever any data source is
+   serving mock data, so nobody mistakes fabricated numbers for
+   real cluster state. Deliberately NOT dismissible. */
+.demo-banner {
+  background-color: var(--warning-light);
+  border: 1px solid var(--warning);
+  border-left: 4px solid var(--warning);
+  padding: 10px 16px;
+  margin: 12px 30px 0;
+  border-radius: var(--radius);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  animation: slideDown 0.3s ease;
+  box-shadow: 0 2px 12px rgba(230, 181, 102, 0.08);
+}
+
+.demo-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.demo-banner-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--warning);
+  flex-shrink: 0;
+  animation: demoBannerPulse 2.4s ease-in-out infinite;
+}
+
+.demo-banner strong {
+  color: var(--warning);
+  font-size: 12px;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+}
+
+.demo-banner-text {
+  color: var(--text-secondary);
+}
+
+.demo-banner-sources {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+@keyframes demoBannerPulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .demo-banner-icon {
+    animation: none;
+  }
+}
+
 /* ─── Tabs with Icons ─────────────────────────────────────────── */
 .tabs {
   display: flex;
@@ -4264,6 +4329,10 @@ a:focus-visible {
   }
   .header h1 {
     font-size: 20px;
+  }
+  .demo-banner,
+  .error-banner {
+    margin: 10px 16px 0;
   }
   .tabs {
     padding: 0 12px;

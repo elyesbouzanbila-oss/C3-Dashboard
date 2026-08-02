@@ -4,7 +4,7 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, Depends
 
-from dependencies import get_k8s_client
+from dependencies import get_k8s_client, fallback_response
 from models.mock_data import MOCK_RBAC, MOCK_PRIVILEGED
 from services.logging_service import get_logger
 from services.security_service import get_privileged_pods, get_rbac_bindings
@@ -23,8 +23,11 @@ async def list_rbac_bindings(
         data = await get_rbac_bindings(api_client)
         return {"status": "success", "data": data}
     except Exception as e:
-        logger.warning(f"RBAC query failed: {e}, using mock data")
-        return {"status": "mock", "data": MOCK_RBAC}
+        logger.warning(f"RBAC query failed: {e}")
+        return fallback_response(
+            {"status": "mock", "data": MOCK_RBAC},
+            {"status": "error", "data": [], "error": str(e)},
+        )
 
 
 @router.get("/privileged-pods")
@@ -36,5 +39,8 @@ async def list_privileged_pods(
         data = await get_privileged_pods(api_client)
         return {"status": "success", "data": data}
     except Exception as e:
-        logger.warning(f"Privileged pod query failed: {e}, using mock data")
-        return {"status": "mock", "data": MOCK_PRIVILEGED}
+        logger.warning(f"Privileged pod query failed: {e}")
+        return fallback_response(
+            {"status": "mock", "data": MOCK_PRIVILEGED},
+            {"status": "error", "data": [], "error": str(e)},
+        )

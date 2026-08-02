@@ -17,9 +17,12 @@ class ConnectionConfig(BaseModel):
 	- incluster: run inside a cluster and use the serviceaccount mounted credentials.
 	"""
 
-	mode: Literal["kubeconfig", "token", "incluster"] = Field(
+	mode: Literal["kubeconfig", "token", "incluster", "mock"] = Field(
 		default="kubeconfig",
-		description="Connection mode"
+		description=(
+			"Connection mode. 'mock' is the opt-in demo mode: endpoints serve "
+			"fabricated data instead of querying a real cluster."
+		)
 	)
 	kubeconfig: Optional[str] = Field(
 		default=None,

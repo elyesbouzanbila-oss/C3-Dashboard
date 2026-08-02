@@ -40,10 +40,30 @@ function AppContent() {
     activeTab,
     wsConnected,
     exportData, connectWebSocket, setActiveTab, silentRefresh,
+    cniNodesStatus, ipPoolsStatus, ipamStatus, policiesStatus,
+    felixStatus, topologyStatus, rbacBindingsStatus, privilegedPodsStatus,
   } = useDashboard()
 
   const [currentTime, setCurrentTime] = useState(new Date())
   const [policyCoverageView, setPolicyCoverageView] = useState<'definitions' | 'coverage'>('definitions')
+
+  // ── DEMO DATA detection: any data source serving mock data ──
+  const mockSources = useMemo(() => {
+    const sources: Array<[string, string]> = [
+      ['CNI nodes', cniNodesStatus],
+      ['IP pools', ipPoolsStatus],
+      ['IPAM', ipamStatus],
+      ['Policies', policiesStatus],
+      ['Felix', felixStatus],
+      ['Topology', topologyStatus],
+      ['RBAC', rbacBindingsStatus],
+      ['Privileged pods', privilegedPodsStatus],
+    ]
+    return sources.filter(([, status]) => status === 'mock').map(([label]) => label)
+  }, [
+    cniNodesStatus, ipPoolsStatus, ipamStatus, policiesStatus,
+    felixStatus, topologyStatus, rbacBindingsStatus, privilegedPodsStatus,
+  ])
 
   // Live footer clock
   useEffect(() => {
@@ -121,6 +141,19 @@ function AppContent() {
           </button>
         </div>
       </header>
+
+      {mockSources.length > 0 && (
+        <div className="demo-banner" role="alert">
+          <div className="demo-banner-content">
+            <Icon name="alert-triangle" size={18} className="demo-banner-icon" aria-hidden="true" />
+            <strong>DEMO DATA</strong>
+            <span className="demo-banner-text">
+              {mockSources.length} data source{mockSources.length !== 1 ? 's' : ''} showing mock data
+              (<span className="demo-banner-sources">{mockSources.join(', ')}</span>) — not live cluster state
+            </span>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="error-banner" role="alert">
