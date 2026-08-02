@@ -125,7 +125,7 @@ export function ChatPanel() {
           <Icon name="x" size={20} />
         ) : (
           <span className="chat-toggle-icon">
-            <Icon name="message-circle" size={22} />
+            <img src="/ai-avatar.png" alt="" className="chat-toggle-avatar" aria-hidden="true" />
             {aiEnabled === false && <span className="chat-toggle-dot" />}
           </span>
         )}
@@ -135,10 +135,10 @@ export function ChatPanel() {
       <div className={`chat-panel ${open ? 'chat-panel-open' : ''}`} role="dialog" aria-label="AI Chat">
         {/* Header */}
         <div className="chat-panel-header">
-          <div className="chat-panel-header-left">
-            <Icon name="bot" size={18} />
-            <span>AI Assistant</span>
-          </div>
+        <div className="chat-panel-header-left">
+          <img src="/ai-avatar.png" alt="" className="chat-header-avatar" aria-hidden="true" />
+          <span>AI Assistant</span>
+        </div>
           <div className="chat-panel-header-right">
             {aiEnabled === false && (
               <span className="chat-panel-status-dot status-warn" title="AI not configured" />
@@ -161,7 +161,7 @@ export function ChatPanel() {
             <div key={i} className={`chat-msg chat-msg-${msg.role}`}>
               <div className="chat-msg-avatar">
                 {msg.role === 'assistant' ? (
-                  <Icon name="bot" size={14} />
+                  <img src="/ai-avatar.png" alt="" className="chat-msg-avatar-img" aria-hidden="true" />
                 ) : (
                   <Icon name="user" size={14} />
                 )}
@@ -175,7 +175,7 @@ export function ChatPanel() {
           {loading && (
             <div className="chat-msg chat-msg-assistant">
               <div className="chat-msg-avatar">
-                <Icon name="bot" size={14} />
+                <img src="/ai-avatar.png" alt="" className="chat-msg-avatar-img" aria-hidden="true" />
               </div>
               <div className="chat-msg-content">
                 <div className="chat-typing">

@@ -330,7 +330,10 @@ export function DashboardPanel({ onNavigate }: DashboardPanelProps) {
       {/* ── Main header ──────────────────────────────────────── */}
       <div className="dashboard-header">
         <div className="dashboard-header-left">
-          <h2>System Overview</h2>
+          <div className="dashboard-heading">
+            <span className="dashboard-eyebrow">Calico CNI · Control Plane</span>
+            <h2>System Overview</h2>
+          </div>
           {threatsCount > 0 && (
             <ThreatMiniSummary count={threatsCount} critical={threatsCritical} onNavigate={onNavigate} />
           )}
@@ -365,9 +368,9 @@ export function DashboardPanel({ onNavigate }: DashboardPanelProps) {
           </>
         ) : (
           <>
-            {/* ── Health + Donut ──────────────────────────── */}
+            {/* ── Health + Donut (hero) ─────────────────────── */}
             <div
-              className="dashboard-card dashboard-card-clickable"
+              className={`dashboard-card dashboard-card-hero dashboard-card-clickable ${downNodes.length > 0 ? 'is-degraded' : 'is-healthy'}`}
               onClick={() => handleCardClick('cni-health')}
               role="button"
               tabIndex={0}
@@ -387,23 +390,24 @@ export function DashboardPanel({ onNavigate }: DashboardPanelProps) {
                 <span className="dashboard-card-label">Healthy Nodes</span>
                 <span className="dashboard-card-sub">
                   {downNodes.length > 0 ? (
-    
                     <span className="threat-badge high" style={{ animation: 'pulse-glow 2s infinite' }}>
                       {downNodes.length} down
                     </span>
                   ) : (
-                    <span style={{ color: 'var(--success)' }}>All healthy</span>
+                    <span className="dashboard-hero-status">All systems nominal</span>
                   )}
                 </span>
               </div>
-              {/* Mini donut */}
+              {/* Signature donut */}
               {cniNodes.length > 0 && (
-                <div className="dashboard-card-chart">
+                <div className="dashboard-card-chart dashboard-hero-donut">
                   <DonutChart
                     percentage={cniNodes.length > 0 ? (healthyNodes.length / cniNodes.length) * 100 : 0}
-                    size={64}
-                    strokeWidth={6}
+                    size={76}
+                    strokeWidth={7}
                     color={downNodes.length === 0 ? 'var(--success)' : 'var(--warning)'}
+                    gradient
+                    glow
                   />
                 </div>
               )}

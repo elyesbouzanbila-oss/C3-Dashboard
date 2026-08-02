@@ -104,8 +104,11 @@ function AppContent() {
     <div className="app">
       <header className="header">
         <div className="header-left">
-          <h1>CNI Command Center</h1>
-          <span className="header-subtitle">Calico Network Diagnostics</span>
+          <img src="/logo.png" alt="" className="header-logo" aria-hidden="true" />
+          <div className="header-title-block">
+            <h1>CNI Command Center</h1>
+            <span className="header-subtitle">Calico Network Diagnostics</span>
+          </div>
         </div>
         <div className="header-right">
           <div className={`status ${wsConnected ? 'status-ok' : 'status-warn'}`}>

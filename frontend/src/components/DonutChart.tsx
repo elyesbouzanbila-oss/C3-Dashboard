@@ -39,11 +39,15 @@ export function DonutChart({
     return () => clearTimeout(timer)
   }, [percentage, circumference, animated])
 
+  // Respect an explicit caller color; only auto-map when the caller left the
+  // default (utilization semantics: high percentage -> warning/danger).
   const pctColor =
-    percentage >= 90 ? 'var(--danger)' :
-    percentage >= 70 ? 'var(--warning)' :
-    percentage >= 40 ? 'var(--primary)' :
-    color
+    color !== 'var(--info)'
+      ? color
+      : percentage >= 90 ? 'var(--danger)'
+      : percentage >= 70 ? 'var(--warning)'
+      : percentage >= 40 ? 'var(--primary)'
+      : 'var(--info)'
 
   const strokeColor = gradient ? `url(#${gradientId})` : pctColor
 
