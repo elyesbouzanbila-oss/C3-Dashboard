@@ -175,7 +175,7 @@ async def policy_coverage(
     try:
         # Fetch pods and policies in parallel
         from services.network_service import get_pods
-        from services.utils import compute_policy_coverage
+        from services.utils import compute_policy_coverage, find_unsupported_selectors
 
         pods, policies_raw = await asyncio.gather(
             get_pods(api_client),
@@ -193,7 +193,16 @@ async def policy_coverage(
         ]
 
         data = compute_policy_coverage(pod_dicts, policies_raw)
-        return {"status": "success", "data": data}
+        response: Dict[str, Any] = {"status": "success", "data": data}
+
+        # Policies whose selector syntax this analyzer can't evaluate are
+        # surfaced explicitly so the UI can warn about them by name instead
+        # of silently misclassifying their coverage.
+        unsupported = find_unsupported_selectors(policies_raw)
+        if unsupported:
+            response["unsupported_selectors"] = unsupported
+
+        return response
     except Exception as e:
         logger.warning(f"Policy coverage failed: {e}")
         from models.mock_data import MOCK_COVERAGE

@@ -234,6 +234,16 @@ export interface PodCoverageItem {
   exposed: boolean
 }
 
+export interface UnsupportedSelectorInfo {
+  policy_name: string
+  selector: string
+}
+
+export interface CoverageResponse extends ApiResponse<PodCoverageItem[]> {
+  /** Policies whose selector syntax the analyzer couldn't evaluate */
+  unsupported_selectors?: UnsupportedSelectorInfo[]
+}
+
 // ─── Policy ↔ Pod Matrix (Workload Endpoints + Policy Impact) ────
 
 export interface EndpointRuleDigest {

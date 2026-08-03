@@ -155,16 +155,94 @@ class TestCalicoSelectorMatches:
     def test_bare_label_absent(self):
         assert self.match("app", {"tier": "frontend"}) is False
 
+    # ── contains / startsWith / endsWith ──────────────────────────
+
+    def test_contains_substring_match(self):
+        assert self.match("app contains 'ngin'", {"app": "nginx"}) is True
+
+    def test_contains_no_match(self):
+        assert self.match("app contains 'redis'", {"app": "nginx"}) is False
+
+    def test_contains_missing_label(self):
+        assert self.match("app contains 'x'", {"tier": "frontend"}) is False
+
+    def test_not_contains(self):
+        assert self.match("app not contains 'db'", {"app": "nginx"}) is True
+        assert self.match("app not contains 'ng'", {"app": "nginx"}) is False
+
+    def test_startswith_match(self):
+        assert self.match("app startsWith 'ng'", {"app": "nginx"}) is True
+
+    def test_startswith_no_match(self):
+        assert self.match("app startsWith 'web'", {"app": "nginx"}) is False
+
+    def test_not_startswith(self):
+        assert self.match("app not startsWith 'ng'", {"app": "nginx"}) is False
+
+    def test_endswith_match(self):
+        assert self.match("app endsWith 'inx'", {"app": "nginx"}) is True
+
+    def test_endswith_no_match(self):
+        assert self.match("app endsWith 'ng'", {"app": "nginx"}) is False
+
+    def test_not_endswith(self):
+        assert self.match("app not endsWith 'inx'", {"app": "nginx"}) is False
+
+    def test_contains_single_equals_is_still_eq(self):
+        """A plain = is equality, not a startsWith shorthand."""
+        assert self.match("app = 'nginx'", {"app": "nginx"}) is True
+
+    # ── matches /regex/ ───────────────────────────────────────────
+
+    def test_matches_regex(self):
+        assert self.match("app matches /^ng/", {"app": "nginx"}) is True
+
+    def test_matches_regex_no_match(self):
+        assert self.match("app matches /^db/", {"app": "nginx"}) is False
+
+    def test_not_matches_regex(self):
+        assert self.match("app not matches /^db/", {"app": "nginx"}) is True
+
+    def test_matches_case_insensitive_flag(self):
+        assert self.match("app matches /^NG/i", {"app": "nginx"}) is True
+
+    def test_matches_escaped_slash(self):
+        assert self.match(r"app matches /ngi.x/", {"app": "nginx"}) is True
+
+    # ── Nested parentheses & NOT ──────────────────────────────────
+
+    def test_nested_parentheses_compound(self):
+        assert self.match(
+            "(app == 'nginx' || app == 'redis') && has(tier)",
+            {"app": "nginx", "tier": "frontend"},
+        ) is True
+
+    def test_nested_parentheses_or_branch_fails(self):
+        assert self.match(
+            "(app == 'nginx' || app == 'redis') && has(tier)",
+            {"app": "nginx"},
+        ) is False
+
+    def test_nested_parentheses_fully_nested(self):
+        assert self.match(
+            "((app == 'nginx' && has(tier)) || app == 'redis')",
+            {"app": "nginx", "tier": "frontend"},
+        ) is True
+
+    def test_not_operator_on_group(self):
+        assert self.match("!(app == 'nginx')", {"app": "redis"}) is True
+
+    def test_not_operator_matches_nothing_extra(self):
+        assert self.match("!(app == 'nginx')", {"app": "nginx"}) is False
+
+    def test_not_has_inside_compound(self):
+        assert self.match("!has(app) && has(tier)", {"tier": "frontend"}) is True
+
     # ── Edge cases ────────────────────────────────────────────────
 
-    def test_selector_with_mixed_quotes(self):
-        """Handle double-quoted values (some Calico setups use them)."""
-        # Our implementation uses single quotes; double quotes fall through
-        # to the bare-label fallback. This test documents the limitation.
-        selector = 'app == "nginx"'
-        labels = {"app": "nginx"}
-        # Does not match because we only handle single quotes
-        assert calico_selector_matches(labels, selector) is True or True
+    def test_selector_with_double_quotes(self):
+        """Double-quoted values are supported (previously a limitation)."""
+        assert self.match('app == "nginx"', {"app": "nginx"}) is True
 
     def test_labels_with_none_values(self):
         """Pod with None (null) label value should not crash."""
@@ -178,6 +256,66 @@ class TestCalicoSelectorMatches:
 
     def test_has_with_hyphenated_key(self):
         assert self.match("has(k8s-app)", {"k8s-app": "kube-dns"}) is True
+
+    def test_unsupported_selector_treated_as_no_match(self):
+        """A selector that can't be parsed is treated as not matching (safe)."""
+        assert self.match("app == 'web' &&", {"app": "web"}) is False
+        assert self.match("has(app", {"app": "nginx"}) is False
+
+    def test_invalid_regex_treated_as_no_match(self):
+        """A malformed regex must not crash evaluation — it is not matching."""
+        assert self.match("app matches /foo(/", {"app": "foo"}) is False
+        assert self.match("app not matches /foo(/", {"app": "foo"}) is False
+
+
+# ───── selector_is_supported ────────────────────────────────────────
+
+class TestSelectorIsSupported:
+    """Gate used by the coverage endpoint to surface parser limitations."""
+
+    def test_empty_is_supported(self):
+        from services.utils import selector_is_supported
+        assert selector_is_supported("") is True
+        assert selector_is_supported("   ") is True
+
+    def test_basic_syntax_supported(self):
+        from services.utils import selector_is_supported
+        assert selector_is_supported("app == 'nginx'") is True
+        assert selector_is_supported("has(app) && app != 'redis'") is True
+
+    def test_advanced_syntax_supported(self):
+        from services.utils import selector_is_supported
+        assert selector_is_supported("app contains 'ng'") is True
+        assert selector_is_supported("app startsWith 'ng'") is True
+        assert selector_is_supported("app endsWith 'inx'") is True
+        assert selector_is_supported("app matches /^ng/") is True
+        assert selector_is_supported("(app == 'a' || app == 'b') && has(tier)") is True
+
+    def test_broken_syntax_unsupported(self):
+        from services.utils import selector_is_supported
+        assert selector_is_supported("app == 'web' &&") is False
+        assert selector_is_supported("has(app") is False
+        assert selector_is_supported("app in {") is False
+        assert selector_is_supported("app ==") is False
+        assert selector_is_supported("app matches /foo(/") is False
+
+
+# ───── find_unsupported_selectors ───────────────────────────────────
+
+class TestFindUnsupportedSelectors:
+    def test_returns_only_broken_policies(self):
+        from services.utils import find_unsupported_selectors
+        policies = [
+            {"name": "good", "selector": "app == 'nginx'"},
+            {"name": "bad", "selector": "app == 'web' &&"},
+            {"name": "empty", "selector": ""},
+        ]
+        result = find_unsupported_selectors(policies)
+        assert result == [{"policy_name": "bad", "selector": "app == 'web' &&"}]
+
+    def test_empty_when_all_parse(self):
+        from services.utils import find_unsupported_selectors
+        assert find_unsupported_selectors([{"name": "a", "selector": "all()"}]) == []
 
 
 # ───── compute_policy_coverage ─────────────────────────────────────

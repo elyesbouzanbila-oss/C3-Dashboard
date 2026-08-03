@@ -42,7 +42,44 @@ const SAMPLE_COVERAGE: PodCoverageItem[] = [
 
 describe('PolicyCoveragePanel', () => {
   beforeEach(() => {
-    vi.mocked(useDashboard).mockReturnValue(asPartial({ policyCoverage: SAMPLE_COVERAGE, policiesStatus: 'mock' as const }))
+    vi.mocked(useDashboard).mockReturnValue(asPartial({
+      policyCoverage: SAMPLE_COVERAGE,
+      policyCoverageWarnings: [],
+      policiesStatus: 'mock' as const,
+    }))
+  })
+
+  it('does not show the selector warning when all selectors are supported', () => {
+    render(<PolicyCoveragePanel />)
+    expect(screen.queryByText(/selector syntax/i)).not.toBeInTheDocument()
+  })
+
+  it('shows the selector warning naming unsupported policies', () => {
+    vi.mocked(useDashboard).mockReturnValue(asPartial({
+      policyCoverage: SAMPLE_COVERAGE,
+      policyCoverageWarnings: [
+        { policy_name: 'legacy-policy', selector: "app == 'web' &&" },
+      ],
+      policiesStatus: 'live' as const,
+    }))
+    render(<PolicyCoveragePanel />)
+    expect(screen.getByText(/1 policy uses selector syntax/i)).toBeInTheDocument()
+    expect(screen.getByText('legacy-policy')).toBeInTheDocument()
+  })
+
+  it('pluralizes the selector warning for multiple policies', () => {
+    vi.mocked(useDashboard).mockReturnValue(asPartial({
+      policyCoverage: SAMPLE_COVERAGE,
+      policyCoverageWarnings: [
+        { policy_name: 'legacy-a', selector: "app == 'web' &&" },
+        { policy_name: 'legacy-b', selector: 'has(app' },
+      ],
+      policiesStatus: 'live' as const,
+    }))
+    render(<PolicyCoveragePanel />)
+    expect(screen.getByText(/2 policies use selector syntax/i)).toBeInTheDocument()
+    expect(screen.getByText('legacy-a')).toBeInTheDocument()
+    expect(screen.getByText('legacy-b')).toBeInTheDocument()
   })
 
   it('renders total pod count in summary cards', () => {

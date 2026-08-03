@@ -292,6 +292,47 @@ class TestCniPolicyCoverage:
 
     @patch(PATCH_TARGET, new_callable=AsyncMock)
     @patch(PATCH_POLICIES, new_callable=AsyncMock)
+    def test_advanced_selectors_evaluated(self, mock_policies, mock_pods):
+        """Advanced selectors (startsWith, &&) are now evaluated, not misclassified."""
+        from types import SimpleNamespace
+        mock_pods.return_value = [
+            SimpleNamespace(**{"name": "web-1", "namespace": "default", "labels": {"app": "web", "tier": "frontend"}}),
+            SimpleNamespace(**{"name": "db-1", "namespace": "default", "labels": {"app": "db"}}),
+        ]
+        mock_policies.return_value = [
+            {"name": "allow-web", "namespace": "default", "type": "NetworkPolicy",
+             "selector": "app startsWith 'we' && has(tier)"},
+        ]
+        body = assert_ok(client.get("/api/cni/policies/coverage"))
+        data = {d["pod_name"]: d for d in body["data"]}
+        assert data["web-1"]["exposed"] is False
+        assert data["web-1"]["selecting_policies"] == ["allow-web"]
+        assert data["db-1"]["exposed"] is True
+        # Fully-evaluable selectors produce no warnings
+        assert "unsupported_selectors" not in body
+
+    @patch(PATCH_TARGET, new_callable=AsyncMock)
+    @patch(PATCH_POLICIES, new_callable=AsyncMock)
+    def test_unsupported_selector_surfaced(self, mock_policies, mock_pods):
+        """Unparseable selectors are surfaced by name so the UI can warn."""
+        from types import SimpleNamespace
+        mock_pods.return_value = [
+            SimpleNamespace(**{"name": "web-1", "namespace": "default", "labels": {"app": "web"}}),
+        ]
+        mock_policies.return_value = [
+            {"name": "legacy-policy", "namespace": "default", "type": "NetworkPolicy",
+             "selector": "app == 'web' &&"},
+        ]
+        body = assert_ok(client.get("/api/cni/policies/coverage"))
+        assert body["unsupported_selectors"] == [
+            {"policy_name": "legacy-policy", "selector": "app == 'web' &&"}
+        ]
+        # The broken policy is not counted as covering the pod
+        assert body["data"][0]["exposed"] is True
+        assert body["data"][0]["selecting_policies"] == []
+
+    @patch(PATCH_TARGET, new_callable=AsyncMock)
+    @patch(PATCH_POLICIES, new_callable=AsyncMock)
     def test_error_fallback(self, mock_policies, mock_pods, monkeypatch):
         """K8s failure returns error status (mock data only in K8S_MODE=mock)."""
         monkeypatch.delenv("K8S_MODE", raising=False)

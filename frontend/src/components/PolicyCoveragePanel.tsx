@@ -9,12 +9,13 @@ type CoverageFilter = 'all' | 'exposed' | 'covered'
 export function PolicyCoveragePanel() {
   useTabSubscription('policies')
 
-  const { policyCoverage: coverage, policiesStatus: status } = useDashboard()
+  const { policyCoverage: coverage, policyCoverageWarnings: warnings, policiesStatus: status } = useDashboard()
   const [filter, setFilter] = useState<CoverageFilter>('all')
   const [searchQuery, setSearchQuery] = useState('')
 
   const exposedCount = coverage.filter(c => c.exposed).length
   const coveredCount = coverage.filter(c => !c.exposed).length
+  const unsupportedList = warnings || []
 
   // Compute namespace-level summary
   const nsSummary = useMemo(() => {
@@ -62,14 +63,26 @@ export function PolicyCoveragePanel() {
         <DataSourceBadge status={status} label="Coverage data" />
       </div>
 
-      {/* M10: Warning about selector parser limitations */}
-      <div className="info-banner" style={{ marginBottom: '16px', padding: '10px 14px', backgroundColor: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: '8px', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-        <Icon name="alert-triangle" size={16} style={{ color: 'var(--warning)', flexShrink: 0, marginTop: '2px' }} />
-        <span style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-          Coverage analysis supports basic Calico selectors only (<code>has</code>, <code>==</code>, <code>!=</code>, <code>in</code>, <code>&&</code>, <code>||</code>).
-          Advanced selectors like <code>contains</code>, <code>matches</code>, <code>startsWith</code>, <code>endsWith</code>, or nested parentheses may be misclassified.
-        </span>
-      </div>
+      {/* Selector-parser warning: only shown when a policy actually uses
+          syntax the analyzer can't evaluate (backend surfaces these via
+          unsupported_selectors). */}
+      {unsupportedList.length > 0 && (
+        <div className="info-banner" style={{ marginBottom: '16px', padding: '10px 14px', backgroundColor: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: '8px', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+          <Icon name="alert-triangle" size={16} style={{ color: 'var(--warning)', flexShrink: 0, marginTop: '2px' }} />
+          <span style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            {unsupportedList.length === 1
+              ? '1 policy uses selector syntax this analysis can\'t evaluate'
+              : `${unsupportedList.length} policies use selector syntax this analysis can't evaluate`}
+            {unsupportedList.map(w => (
+              <span key={w.policy_name}>
+                {' '}<code>{w.policy_name}</code>
+              </span>
+            ))}
+            {' '}— these are not counted as covering any pods.
+            Supported syntax: <code>has</code>, <code>==</code>, <code>!=</code>, <code>in</code>, <code>contains</code>, <code>startsWith</code>, <code>endsWith</code>, <code>matches</code>, <code>&&</code>, <code>||</code>, <code>!</code>, and parentheses.
+          </span>
+        </div>
+      )}
 
       {/* Summary cards */}
       <div className="coverage-summary-cards">

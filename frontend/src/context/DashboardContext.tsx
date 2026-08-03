@@ -4,8 +4,8 @@ import {
 import type {
   Pod, ThreatEvent, CalicoNodeStatus, BGPPeer, IPPool, IPAMBlockSummary,
   CniPolicy, CniTopologyNode, CniTopologyEdge, FelixMetrics,
-  DataSourceStatus, ApiResponse, PodCoverageItem,
-  RbacBinding, PrivilegedPod, PolicyMatrixData,
+  DataSourceStatus, ApiResponse, PodCoverageItem, CoverageResponse,
+  RbacBinding, PrivilegedPod, PolicyMatrixData, UnsupportedSelectorInfo,
 } from '../types'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || ''
@@ -32,6 +32,8 @@ export interface DashboardState {
   cniTopology: { nodes: CniTopologyNode[]; edges: CniTopologyEdge[] } | null
   felixMetrics: FelixMetrics | null
   policyCoverage: PodCoverageItem[]
+  /** Policies whose selector syntax the analyzer couldn't evaluate */
+  policyCoverageWarnings: UnsupportedSelectorInfo[]
   policyMatrix: PolicyMatrixData | null
   rbacBindings: RbacBinding[]
   privilegedPods: PrivilegedPod[]
@@ -172,6 +174,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [cniTopology, setCniTopology] = useState<{ nodes: CniTopologyNode[]; edges: CniTopologyEdge[] } | null>(null)
   const [felixMetrics, setFelixMetrics] = useState<FelixMetrics | null>(null)
   const [policyCoverage, setPolicyCoverage] = useState<PodCoverageItem[]>([])
+  const [policyCoverageWarnings, setPolicyCoverageWarnings] = useState<UnsupportedSelectorInfo[]>([])
   const [policyMatrix, setPolicyMatrix] = useState<PolicyMatrixData | null>(null)
   const [rbacBindings, setRbacBindings] = useState<RbacBinding[]>([])
   const [privilegedPods, setPrivilegedPods] = useState<PrivilegedPod[]>([])
@@ -287,8 +290,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const fetchCoverage = useCallback(async () => {
     const res = await fetchWithRetry(`${API_BASE_URL}/api/cni/policies/coverage`)
     if (res?.ok) {
-      const d: ApiResponse<PodCoverageItem[]> = await res.json()
+      const d: CoverageResponse = await res.json()
       setPolicyCoverage(d.data || [])
+      setPolicyCoverageWarnings(d.unsupported_selectors || [])
     }
   }, [])
 
@@ -545,7 +549,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const value: DashboardState = {
     loading, setLoading, error, setError,
     pods, cniNodes, bgpPeers, ipPools, ipamBlocks, cniPolicies,
-    cniTopology, felixMetrics, policyCoverage, policyMatrix, rbacBindings, privilegedPods, threats,
+    cniTopology, felixMetrics, policyCoverage, policyCoverageWarnings,
+    policyMatrix, rbacBindings, privilegedPods, threats,
     cniNodesStatus, ipPoolsStatus, ipamStatus, policiesStatus, policyMatrixStatus,
     felixStatus, topologyStatus, rbacBindingsStatus, privilegedPodsStatus,
     wsConnected,
