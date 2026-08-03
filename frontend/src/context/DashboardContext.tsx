@@ -56,6 +56,9 @@ export interface DashboardState {
   // Actions
   fetchData: () => Promise<void>
   silentRefresh: () => Promise<void>
+  refreshView: () => Promise<void>
+  /** Bumps on every manual refresh so panels with local state can reload */
+  refreshSignal: number
   connectWebSocket: () => void
   exportData: () => void
   clearThreats: () => void
@@ -188,6 +191,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [activeTab, setActiveTab] = useState(
     () => localStorage.getItem('k8s-dashboard-tab') || 'dashboard'
   )
+
+  // ── Manual refresh signal (bumped by the topbar refresh button) ──
+  const [refreshSignal, setRefreshSignal] = useState(0)
   const handleSetActiveTab = useCallback((tabId: string) => {
     setActiveTab(tabId)
     localStorage.setItem('k8s-dashboard-tab', tabId)
@@ -332,6 +338,34 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     'security': fetchSecurity,
     'threats': fetchThreatHistory,
   }), [fetchTopology, fetchFelix, fetchCoverage, fetchSecurity, fetchThreatHistory])
+
+  // ── Manual refresh of the current view (topbar button) ─────
+  // Force-fetches core data AND all supplementary data, bypassing the
+  // staleness gate, then bumps refreshSignal so panels that hold their
+  // own local state (e.g. Cluster Config) reload too.
+  const refreshView = useCallback(async () => {
+    setError(null)
+    try {
+      await fetchCoreData()
+      await Promise.all([
+        fetchTopology(),
+        fetchFelix(),
+        fetchCoverage(),
+        fetchSecurity(),
+        fetchThreatHistory(),
+      ])
+      setRefreshSignal(n => n + 1)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Connection lost'
+      setError(`Data fetch failed: ${msg}`)
+      setCniNodesStatus('error')
+      setIpPoolsStatus('error')
+      setIpamStatus('error')
+      setPoliciesStatus('error')
+      setFelixStatus('error')
+      setTopologyStatus('error')
+    }
+  }, [fetchCoreData, fetchTopology, fetchFelix, fetchCoverage, fetchSecurity, fetchThreatHistory])
 
   // ── Silent refresh (background — no loading overlay) ────────
   const silentRefresh = useCallback(async () => {
@@ -494,7 +528,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     felixStatus, topologyStatus, rbacBindingsStatus, privilegedPodsStatus,
     wsConnected,
     activeTab, setActiveTab: handleSetActiveTab,
-    fetchData, silentRefresh, connectWebSocket, exportData, clearThreats,
+    fetchData, silentRefresh, refreshView, refreshSignal,
+    connectWebSocket, exportData, clearThreats,
     subscribeTab,
   }
 

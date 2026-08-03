@@ -204,7 +204,7 @@ function ConfigSection({ title, icon, iconColor, expanded, onToggle, addLabel, o
 // ═══════════════════════════════════════════════════════════════════
 
 export function ClusterConfigPanel() {
-  const { ipPools, bgpPeers } = useDashboard()
+  const { ipPools, bgpPeers, refreshSignal } = useDashboard()
 
   // ── Super user state ──────────────────────────────────────────
   const [showAuth, setShowAuth] = useState(false)
@@ -305,7 +305,8 @@ export function ClusterConfigPanel() {
     setLoadingData(false)
   }, [])
 
-  useEffect(() => { loadAll() }, [loadAll])
+  // Reload on mount and whenever the topbar refresh button is pressed
+  useEffect(() => { loadAll() }, [loadAll, refreshSignal])
 
   // ── Modal state ───────────────────────────────────────────────
   const [modal, setModal] = useState<{ type: string; data?: any; editing?: boolean } | null>(null)

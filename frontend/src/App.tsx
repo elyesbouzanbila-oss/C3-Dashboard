@@ -29,7 +29,7 @@ function AppContent() {
     cniNodes, bgpPeers,
     activeTab,
     wsConnected,
-    exportData, connectWebSocket, setActiveTab, silentRefresh,
+    exportData, connectWebSocket, setActiveTab, silentRefresh, refreshView,
     cniNodesStatus, ipPoolsStatus, ipamStatus, policiesStatus,
     felixStatus, topologyStatus, rbacBindingsStatus, privilegedPodsStatus,
     threats,
@@ -38,6 +38,18 @@ function AppContent() {
   const [currentTime, setCurrentTime] = useState(new Date())
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+
+  // ── Manual refresh of the current view ──
+  const handleRefresh = useCallback(async () => {
+    if (refreshing) return
+    setRefreshing(true)
+    try {
+      await refreshView()
+    } finally {
+      setRefreshing(false)
+    }
+  }, [refreshView, refreshing])
 
   // ── DEMO DATA detection ──
   const mockSources = useMemo(() => {
@@ -180,7 +192,16 @@ function AppContent() {
         </nav>
 
         <div className="sidebar-footer">
-          {!sidebarCollapsed && (
+          {sidebarCollapsed ? (
+            <button
+              className="sidebar-expand-btn"
+              onClick={() => setSidebarCollapsed(false)}
+              aria-label="Expand sidebar"
+              title="Expand sidebar"
+            >
+              <Icon name="chevron-right" size={16} />
+            </button>
+          ) : (
             <>
               <div className={`sidebar-status ${wsConnected ? 'connected' : ''}`}>
                 <span className="sidebar-status-dot" />
@@ -217,6 +238,15 @@ function AppContent() {
                 <span>DEMO</span>
               </div>
             )}
+            <button
+              className={`topbar-refresh-btn ${refreshing ? 'refreshing' : ''}`}
+              onClick={handleRefresh}
+              disabled={refreshing}
+              aria-label="Refresh current view"
+              title="Refresh current view"
+            >
+              <Icon name="refresh-cw" size={14} />
+            </button>
             <span className="topbar-clock">{currentTime.toLocaleTimeString()}</span>
           </div>
         </header>

@@ -4838,8 +4838,8 @@ a:focus-visible {
 
 /* ─── Sidebar ───────────────────────────────────────────────── */
 .sidebar {
-  width: 220px;
-  min-width: 220px;
+  width: 240px;
+  min-width: 240px;
   background: var(--surface);
   border-right: 1px solid var(--border);
   display: flex;
@@ -4861,6 +4861,7 @@ a:focus-visible {
   padding: 16px;
   border-bottom: 1px solid var(--border);
   min-height: 64px;
+  overflow: hidden;
 }
 
 .sidebar-logo {
@@ -4872,21 +4873,26 @@ a:focus-visible {
 .sidebar-brand {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 .sidebar-brand h1 {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--primary);
   letter-spacing: -0.3px;
   line-height: 1.2;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sidebar-subtitle {
   font-size: 11px;
   color: var(--text-tertiary);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sidebar-toggle {
@@ -5061,6 +5067,33 @@ a:focus-visible {
   color: var(--text);
 }
 
+/* ─── Sidebar expand (collapsed rail) ─────────────────────── */
+/* The header toggle hides when collapsed, so this footer button
+   is the way back out. Always reachable, never covered. */
+.sidebar-expand-btn {
+  display: none;
+}
+
+.collapsed .sidebar-expand-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 38px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.collapsed .sidebar-expand-btn:hover {
+  color: var(--text);
+  border-color: var(--primary);
+  background-color: var(--primary-light);
+}
+
 /* ─── Main Area ─────────────────────────────────────────────── */
 .main-area {
   flex: 1;
@@ -5136,6 +5169,39 @@ a:focus-visible {
   font-size: 12px;
   color: var(--text-tertiary);
   font-family: var(--font-mono);
+}
+
+.topbar-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.topbar-refresh-btn:hover {
+  color: var(--text);
+  border-color: var(--primary);
+  background-color: var(--primary-light);
+}
+
+.topbar-refresh-btn:active {
+  transform: scale(0.95);
+}
+
+.topbar-refresh-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.topbar-refresh-btn.refreshing svg {
+  animation: spin 0.8s linear infinite;
 }
 
 /* ─── Content ───────────────────────────────────────────────── */
