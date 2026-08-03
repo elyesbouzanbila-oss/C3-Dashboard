@@ -32,13 +32,24 @@ function PeerSelector({ selector }: { selector?: string | null }) {
   return <code className="impact-selector">{selector}</code>
 }
 
-export function PolicyImpactPanel() {
+interface PolicyImpactPanelProps {
+  /** Policy to preselect when navigating from the Endpoints view. */
+  initialPolicyName?: string
+  /** Called when a pod chip is clicked. */
+  onOpenEndpoint?: (podQuery: string) => void
+  /** Shows a back-link that returns to the view this panel was opened from. */
+  onBack?: () => void
+}
+
+export function PolicyImpactPanel({ initialPolicyName = '', onOpenEndpoint, onBack }: PolicyImpactPanelProps) {
   useTabSubscription('policies')
 
   const { policyMatrix, policyMatrixStatus: status } = useDashboard()
   const impacts = useMemo(() => policyMatrix?.policy_impacts ?? [], [policyMatrix])
 
-  const [selectedName, setSelectedName] = useState<string>('')
+  // The panel remounts on every subview switch (conditional render in
+  // NetworkSection), so initializing from the prop is always fresh.
+  const [selectedName, setSelectedName] = useState<string>(initialPolicyName)
   const [searchQuery, setSearchQuery] = useState('')
 
   const filteredImpacts = useMemo(() => {
@@ -66,6 +77,11 @@ export function PolicyImpactPanel() {
     <div className="subsection">
       <div className="subsection-header">
         <h3>Policy Impact</h3>
+        {onBack && (
+          <button type="button" className="impact-back-link" onClick={onBack}>
+            <Icon name="arrow-left" size={14} /> Back to Endpoints
+          </button>
+        )}
         <DataSourceBadge status={status} label="Policy matrix data" />
       </div>
 
@@ -189,9 +205,15 @@ export function PolicyImpactPanel() {
               <span className="coverage-no-policies">This policy selects no pods.</span>
             ) : (
               selected.selected_pods.slice(0, 12).map(pod => (
-                <span key={`${pod.namespace}/${pod.pod_name}`} className="impact-pod-chip">
+                <button
+                  key={`${pod.namespace}/${pod.pod_name}`}
+                  type="button"
+                  className="impact-pod-chip impact-pod-chip-link"
+                  title={`Open endpoint for ${pod.namespace}/${pod.pod_name}`}
+                  onClick={() => onOpenEndpoint?.(`${pod.namespace}/${pod.pod_name}`)}
+                >
                   {pod.namespace}/{pod.pod_name}
-                </span>
+                </button>
               ))
             )}
             {selected.selected_pods.length > 12 && (
@@ -242,7 +264,15 @@ export function PolicyImpactPanel() {
                         ) : (
                           <span className="impact-matched">
                             {rule.matched_pods.slice(0, 2).map(p => (
-                              <span key={`${p.namespace}/${p.pod_name}`} className="impact-pod-chip">{p.pod_name}</span>
+                              <button
+                                key={`${p.namespace}/${p.pod_name}`}
+                                type="button"
+                                className="impact-pod-chip impact-pod-chip-link"
+                                title={`Open endpoint for ${p.namespace}/${p.pod_name}`}
+                                onClick={() => onOpenEndpoint?.(`${p.namespace}/${p.pod_name}`)}
+                              >
+                                {p.pod_name}
+                              </button>
                             ))}
                             {rule.matched_pods.length > 2 && (
                               <span className="coverage-policy-more">+{rule.matched_pods.length - 2}</span>

@@ -5836,3 +5836,76 @@ a:focus-visible {
   flex-wrap: wrap;
   align-items: center;
 }
+
+/* Clickable policy tags — cross-nav to the Impact view.
+   Buttons inherit the tag look; hover/focus add the affordance. */
+.coverage-policy-tag-link {
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+  font-family: var(--font-mono);
+}
+
+.coverage-policy-tag-link:hover {
+  background-color: var(--primary);
+  color: #1c1406;
+  border-color: var(--primary);
+}
+
+.coverage-policy-tag-link:active {
+  transform: scale(0.96);
+}
+
+.coverage-policy-tag-link:focus-visible {
+  border-radius: 4px;
+}
+
+/* Clickable pod chips — cross-nav to the Endpoints view. */
+.impact-pod-chip-link {
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: var(--font-mono);
+}
+
+.impact-pod-chip-link:hover {
+  background-color: var(--primary-light);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.impact-pod-chip-link:active {
+  transform: scale(0.96);
+}
+
+.impact-pod-chip-link:focus-visible {
+  border-radius: 12px;
+}
+
+/* Back-link in the Impact header — returns to the view that opened it. */
+.impact-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 6px 12px;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.impact-back-link:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  background-color: var(--primary-light);
+}
+
+.impact-back-link:active {
+  transform: scale(0.97);
+}
+

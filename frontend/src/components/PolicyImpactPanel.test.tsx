@@ -147,4 +147,38 @@ describe('PolicyImpactPanel', () => {
     render(<PolicyImpactPanel />)
     expect(screen.getByText("app == 'api-server'")).toBeInTheDocument()
   })
+
+  it('preselects a policy from initialPolicyName prop', () => {
+    render(<PolicyImpactPanel initialPolicyName="default-deny" />)
+    // The deny policy shows 2 selected pods in its header
+    expect(screen.getByText(/2 pods selected/i)).toBeInTheDocument()
+  })
+
+  it('calls onOpenEndpoint with namespace/pod when a pod chip is clicked', () => {
+    const onOpenEndpoint = vi.fn()
+    render(<PolicyImpactPanel onOpenEndpoint={onOpenEndpoint} />)
+    fireEvent.click(screen.getByText('production/api-server-1'))
+    expect(onOpenEndpoint).toHaveBeenCalledWith('production/api-server-1')
+  })
+
+  it('calls onOpenEndpoint with namespace/pod when a matched peer chip is clicked', () => {
+    const onOpenEndpoint = vi.fn()
+    render(<PolicyImpactPanel onOpenEndpoint={onOpenEndpoint} />)
+    fireEvent.click(screen.getByText('frontend-1'))
+    expect(onOpenEndpoint).toHaveBeenCalledWith('production/frontend-1')
+  })
+
+  it('renders the back-link when onBack is provided and calls it on click', () => {
+    const onBack = vi.fn()
+    render(<PolicyImpactPanel onBack={onBack} />)
+    const backBtn = screen.getByText('Back to Endpoints')
+    expect(backBtn).toBeInTheDocument()
+    fireEvent.click(backBtn)
+    expect(onBack).toHaveBeenCalled()
+  })
+
+  it('omits the back-link when onBack is not provided', () => {
+    render(<PolicyImpactPanel />)
+    expect(screen.queryByText('Back to Endpoints')).not.toBeInTheDocument()
+  })
 })

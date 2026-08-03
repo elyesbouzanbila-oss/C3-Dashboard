@@ -4,7 +4,7 @@ import { DataSourceBadge } from './DataSourceBadge'
 import { EmptyState } from './EmptyState'
 import { Icon } from './Icon'
 
-type EndpointFilter = 'all' | 'exposed' | 'covered'
+export type EndpointFilter = 'all' | 'exposed' | 'covered'
 
 function DigestChip({ digest }: { digest: { allow: number; deny: number; log: number; pass: number; ports: string[] } }) {
   const parts: React.ReactNode[] = []
@@ -31,14 +31,46 @@ function DigestChip({ digest }: { digest: { allow: number; deny: number; log: nu
   )
 }
 
-export function WorkloadEndpointsPanel() {
+interface WorkloadEndpointsPanelProps {
+  /** Pre-filled search query when returning to this view. */
+  initialSearch?: string
+  /** Pre-selected filter chip when returning to this view. */
+  initialFilter?: EndpointFilter
+  /** Reports filter changes up so cross-navigation can preserve them. */
+  onFilterChange?: (filter: EndpointFilter) => void
+  /** Reports search changes up so cross-navigation can preserve them. */
+  onSearchChange?: (search: string) => void
+  /** Called when a selecting-policy tag is clicked. */
+  onOpenImpact?: (policyName: string) => void
+}
+
+export function WorkloadEndpointsPanel({
+  initialSearch = '',
+  initialFilter = 'all',
+  onFilterChange,
+  onSearchChange,
+  onOpenImpact,
+}: WorkloadEndpointsPanelProps) {
   useTabSubscription('policies')
 
   const { policyMatrix, policyMatrixStatus: status } = useDashboard()
   const endpoints = useMemo(() => policyMatrix?.workload_endpoints ?? [], [policyMatrix])
 
-  const [filter, setFilter] = useState<EndpointFilter>('all')
-  const [searchQuery, setSearchQuery] = useState('')
+  // The panel remounts on every subview switch (conditional render in
+  // NetworkSection), so it initializes from the props each time. Changes
+  // are reported up so the parent can hand them back on the next mount.
+  const [filter, setFilter] = useState<EndpointFilter>(initialFilter)
+  const [searchQuery, setSearchQuery] = useState(initialSearch)
+
+  const handleFilterChange = (next: EndpointFilter) => {
+    setFilter(next)
+    onFilterChange?.(next)
+  }
+
+  const handleSearchChange = (next: string) => {
+    setSearchQuery(next)
+    onSearchChange?.(next)
+  }
 
   const exposedCount = endpoints.filter(e => e.exposed).length
   const coveredCount = endpoints.length - exposedCount
@@ -49,9 +81,16 @@ export function WorkloadEndpointsPanel() {
       if (filter === 'exposed' && !ep.exposed) return false
       if (filter === 'covered' && ep.exposed) return false
       if (!q) return true
+      const ns = (ep.namespace || '').toLowerCase()
+      const pod = (ep.pod_name || '').toLowerCase()
+      // Support "namespace/pod" queries coming from the Impact view's pod chips.
+      if (q.includes('/')) {
+        const [nsPart, podPart] = q.split('/')
+        return ns.includes((nsPart || '').trim()) && pod.includes((podPart || '').trim())
+      }
       return (
-        (ep.pod_name || '').toLowerCase().includes(q) ||
-        (ep.namespace || '').toLowerCase().includes(q) ||
+        pod.includes(q) ||
+        ns.includes(q) ||
         (ep.node_name || '').toLowerCase().includes(q) ||
         Object.entries(ep.labels || {}).some(([k, v]) => `${k}:${v}`.toLowerCase().includes(q))
       )
@@ -118,23 +157,23 @@ export function WorkloadEndpointsPanel() {
             className="security-search-input"
             placeholder="Search endpoints by pod, namespace, node, or label..."
             value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
+            onChange={e => handleSearchChange(e.target.value)}
             aria-label="Search endpoints"
           />
           {searchQuery && (
-            <button className="security-search-clear" onClick={() => setSearchQuery('')} aria-label="Clear search">
+            <button className="security-search-clear" onClick={() => handleSearchChange('')} aria-label="Clear search">
               <Icon name="x" size={16} />
             </button>
           )}
         </div>
         <div className="security-filter-chips">
-          <button className={`security-chip ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>
+          <button className={`security-chip ${filter === 'all' ? 'active' : ''}`} onClick={() => handleFilterChange('all')}>
             All
           </button>
-          <button className={`security-chip chip-danger ${filter === 'exposed' ? 'active' : ''}`} onClick={() => setFilter('exposed')}>
+          <button className={`security-chip chip-danger ${filter === 'exposed' ? 'active' : ''}`} onClick={() => handleFilterChange('exposed')}>
             Exposed Only
           </button>
-          <button className={`security-chip ${filter === 'covered' ? 'active' : ''}`} onClick={() => setFilter('covered')}>
+          <button className={`security-chip ${filter === 'covered' ? 'active' : ''}`} onClick={() => handleFilterChange('covered')}>
             Covered Only
           </button>
         </div>
@@ -212,7 +251,15 @@ export function WorkloadEndpointsPanel() {
                     ) : (
                       <div className="coverage-policy-list">
                         {ep.selecting_policies.slice(0, 3).map(p => (
-                          <span key={p.name} className="coverage-policy-tag">{p.name}</span>
+                          <button
+                            key={p.name}
+                            type="button"
+                            className="coverage-policy-tag coverage-policy-tag-link"
+                            title={`Open impact view for ${p.name}`}
+                            onClick={() => onOpenImpact?.(p.name)}
+                          >
+                            {p.name}
+                          </button>
                         ))}
                         {ep.selecting_policies.length > 3 && (
                           <span className="coverage-policy-more">+{ep.selecting_policies.length - 3}</span>

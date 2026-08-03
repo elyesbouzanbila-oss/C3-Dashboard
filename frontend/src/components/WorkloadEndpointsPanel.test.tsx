@@ -140,4 +140,61 @@ describe('WorkloadEndpointsPanel', () => {
     expect(screen.getAllByText('worker-1').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('10.244.1.10')).toBeInTheDocument()
   })
+
+  it('pre-fills the search box from initialSearch prop', () => {
+    render(<WorkloadEndpointsPanel initialSearch="api-server" />)
+    const input = screen.getByPlaceholderText(/search endpoints/i) as HTMLInputElement
+    expect(input.value).toBe('api-server')
+    // Only the matching pod remains visible
+    expect(screen.getByText('api-server-1')).toBeInTheDocument()
+    expect(screen.queryByText('unpatched-sidecar')).not.toBeInTheDocument()
+  })
+
+  it('matches namespace/pod queries from the Impact view pod chips', () => {
+    render(<WorkloadEndpointsPanel initialSearch="production/api-server-1" />)
+    const input = screen.getByPlaceholderText(/search endpoints/i) as HTMLInputElement
+    expect(input.value).toBe('production/api-server-1')
+    // Exact namespace + pod match is shown; the other production pod is not
+    expect(screen.getByText('api-server-1')).toBeInTheDocument()
+    expect(screen.queryByText('unpatched-sidecar')).not.toBeInTheDocument()
+    expect(screen.queryByText('pending-pod')).not.toBeInTheDocument()
+  })
+
+  it('supports namespace/pod queries typed into the search box', () => {
+    render(<WorkloadEndpointsPanel />)
+    const searchInput = screen.getByPlaceholderText(/search endpoints/i)
+    fireEvent.change(searchInput, { target: { value: 'production/unpatched' } })
+    expect(screen.getByText('unpatched-sidecar')).toBeInTheDocument()
+    expect(screen.queryByText('api-server-1')).not.toBeInTheDocument()
+  })
+
+  it('preselects the filter chip from initialFilter prop', () => {
+    render(<WorkloadEndpointsPanel initialFilter="exposed" />)
+    expect(screen.getByText('Exposed Only').classList.contains('active')).toBe(true)
+    // Only the exposed pods remain visible
+    expect(screen.getByText('unpatched-sidecar')).toBeInTheDocument()
+    expect(screen.queryByText('api-server-1')).not.toBeInTheDocument()
+  })
+
+  it('reports filter changes via onFilterChange', () => {
+    const onFilterChange = vi.fn()
+    render(<WorkloadEndpointsPanel onFilterChange={onFilterChange} />)
+    fireEvent.click(screen.getByText('Covered Only'))
+    expect(onFilterChange).toHaveBeenCalledWith('covered')
+  })
+
+  it('reports search changes via onSearchChange', () => {
+    const onSearchChange = vi.fn()
+    render(<WorkloadEndpointsPanel onSearchChange={onSearchChange} />)
+    const searchInput = screen.getByPlaceholderText(/search endpoints/i)
+    fireEvent.change(searchInput, { target: { value: 'db' } })
+    expect(onSearchChange).toHaveBeenCalledWith('db')
+  })
+
+  it('calls onOpenImpact when a policy tag is clicked', () => {
+    const onOpenImpact = vi.fn()
+    render(<WorkloadEndpointsPanel onOpenImpact={onOpenImpact} />)
+    fireEvent.click(screen.getByText('allow-api-egress'))
+    expect(onOpenImpact).toHaveBeenCalledWith('allow-api-egress')
+  })
 })
