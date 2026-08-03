@@ -13,6 +13,8 @@ inspection, topology, and connectivity diagnostics.
 - **CNI Health** — Per-node Felix and BIRD/BGP agent status cards with color-coded health indicators
 - **IPAM** — IP pool utilization bars, block allocation statistics, pool definition tables
 - **Policies** — Searchable/filterable Calico NetworkPolicy and GlobalNetworkPolicy table with Allow/Deny badges; sub-view toggle for **Policy Coverage** analysis (per-pod exposed/covered detection with namespace-level summaries)
+- **Endpoints** — Per-pod Calico workload endpoint state: selecting policies, exposed/covered status, interface status, and per-direction (ingress/egress) rule digests
+- **Policy Impact** — Select a policy to see the exact pods it selects and a rule-by-rule breakdown (action, protocol, ports, peer selector, matched pods)
 - **Topology** — Interactive node-to-node BGP mesh + pod overlay topology graph
 - **Diagnostics** — On-demand pod-to-pod / pod-to-service connectivity test runner
 - **Threats** — Real-time network-scoped threat event streaming via WebSocket (Falco webhook ingestion)
@@ -200,6 +202,7 @@ VITE_API_URL=http://localhost:8000
 | `/api/cni/ipam/utilization`      | GET        | Allocated vs. free IPs per pool        | No |
 | `/api/cni/policies`              | GET        | Calico NetworkPolicy + GlobalNetworkPolicy | No |
 | `/api/cni/policies/coverage`      | GET        | Per-pod policy coverage analysis (exposed vs. covered) | No |
+| `/api/cni/policy-matrix`          | GET        | Policy ↔ pod matrix: workload endpoints (per-pod selecting policies, exposure, interface status, rule digests) + policy impact (selected pods, rule-by-rule breakdown) | No |
 | `/api/cni/topology`              | GET        | BGP mesh + overlay topology            | No |
 | `/api/cni/metrics/felix`         | GET        | Felix performance counters             | No |
 | `/api/cni/diagnostics/connectivity` | POST    | On-demand connectivity test            | No |

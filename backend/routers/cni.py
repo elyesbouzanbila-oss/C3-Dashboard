@@ -203,6 +203,56 @@ async def policy_coverage(
         )
 
 
+@router.get("/policy-matrix")
+async def policy_matrix(
+    api_client=Depends(get_k8s_client),
+) -> Dict[str, Any]:
+    """Policy ↔ pod matrix: per-pod workload endpoint state + per-policy impact.
+
+    Two views from one engine (services/policy_engine.py):
+      - ``workload_endpoints`` — per-pod: selecting policies, exposure,
+        interface status, per-direction rule digest
+      - ``policy_impacts`` — per-policy: selected pods + rule-by-rule breakdown
+    """
+    try:
+        from services.network_service import get_pods
+        from services.policy_engine import compute_policy_impact, compute_workload_endpoints
+
+        pods, policies = await asyncio.gather(
+            get_pods(api_client),
+            calico_service.get_cni_policies_detailed(api_client),
+        )
+
+        pod_dicts = [
+            {
+                "name": p.name,
+                "namespace": p.namespace,
+                "labels": p.labels,
+                "node_name": p.node_name,
+                "pod_ip": p.pod_ip,
+                "phase": p.phase,
+            }
+            for p in pods
+        ]
+
+        data = {
+            "workload_endpoints": compute_workload_endpoints(pod_dicts, policies),
+            "policy_impacts": compute_policy_impact(policies, pod_dicts),
+        }
+        return {"status": "success", "data": data}
+    except Exception as e:
+        logger.warning(f"Policy matrix failed: {e}")
+        from models.mock_data import build_mock_policy_matrix
+        return fallback_response(
+            {"status": "mock", "data": build_mock_policy_matrix()},
+            {
+                "status": "error",
+                "data": {"workload_endpoints": [], "policy_impacts": []},
+                "error": str(e),
+            },
+        )
+
+
 @router.get("/topology")
 async def cni_topology(
     api_client=Depends(get_k8s_client),

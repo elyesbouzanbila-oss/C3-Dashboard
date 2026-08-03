@@ -225,10 +225,12 @@ async def get_ipam_utilization(api_client) -> List[Dict[str, Any]]:
     return result
 
 
-async def get_cni_policies(api_client) -> List[Dict[str, Any]]:
-    """List Calico NetworkPolicy and GlobalNetworkPolicy CRDs."""
+async def _iter_policy_items(api_client) -> List[Dict[str, Any]]:
+    """Yield raw Calico NetworkPolicy / GlobalNetworkPolicy CRD items with
+    ``_ns`` and ``_type`` annotations attached (used by both the summary and
+    detailed listing variants)."""
     custom_api = k8s_client.CustomObjectsApi(api_client)
-    result = []
+    items: List[Dict[str, Any]] = []
 
     # GlobalNetworkPolicies (cluster-scoped)
     try:
@@ -238,17 +240,9 @@ async def get_cni_policies(api_client) -> List[Dict[str, Any]]:
             plural="globalnetworkpolicies",
         )
         for item in (gnp_raw.get("items") or []):
-            spec = item.get("spec", {})
-            result.append({
-                "name": item["metadata"]["name"],
-                "namespace": None,
-                "type": "GlobalNetworkPolicy",
-                "policy_type": spec.get("types", []),
-                "selector": spec.get("selector"),
-                "order": spec.get("order"),
-                "rules_count": _count_policy_rules(spec),
-                "rule_actions": _extract_rule_actions(spec),
-            })
+            item["_ns"] = None
+            item["_type"] = "GlobalNetworkPolicy"
+            items.append(item)
     except Exception:
         pass
 
@@ -266,22 +260,57 @@ async def get_cni_policies(api_client) -> List[Dict[str, Any]]:
                     plural="networkpolicies",
                 )
                 for item in (np_raw.get("items") or []):
-                    spec = item.get("spec", {})
-                    result.append({
-                        "name": item["metadata"]["name"],
-                        "namespace": ns_name,
-                        "type": "NetworkPolicy",
-                        "policy_type": spec.get("types", []),
-                        "selector": spec.get("selector"),
-                        "order": spec.get("order"),
-                        "rules_count": _count_policy_rules(spec),
-                        "rule_actions": _extract_rule_actions(spec),
-                    })
+                    item["_ns"] = ns_name
+                    item["_type"] = "NetworkPolicy"
+                    items.append(item)
             except Exception:
                 continue
     except Exception:
         pass
 
+    return items
+
+
+async def get_cni_policies(api_client) -> List[Dict[str, Any]]:
+    """List Calico NetworkPolicy and GlobalNetworkPolicy CRDs (summary form)."""
+    result = []
+    for item in await _iter_policy_items(api_client):
+        spec = item.get("spec", {})
+        result.append({
+            "name": item["metadata"]["name"],
+            "namespace": item["_ns"],
+            "type": item["_type"],
+            "policy_type": spec.get("types", []),
+            "selector": spec.get("selector"),
+            "order": spec.get("order"),
+            "rules_count": _count_policy_rules(spec),
+            "rule_actions": _extract_rule_actions(spec),
+        })
+    return result
+
+
+async def get_cni_policies_detailed(api_client) -> List[Dict[str, Any]]:
+    """List Calico policies including full ingress/egress rule specs.
+
+    Used by the policy-matrix engine (Workload Endpoints + Policy Impact)
+    which needs rule-level detail (actions, protocols, ports, peer selectors)
+    on top of the summary fields returned by ``get_cni_policies``.
+    """
+    result = []
+    for item in await _iter_policy_items(api_client):
+        spec = item.get("spec", {})
+        result.append({
+            "name": item["metadata"]["name"],
+            "namespace": item["_ns"],
+            "type": item["_type"],
+            "policy_type": spec.get("types", []),
+            "selector": spec.get("selector"),
+            "order": spec.get("order"),
+            "rules_count": _count_policy_rules(spec),
+            "rule_actions": _extract_rule_actions(spec),
+            "ingress": spec.get("ingress", []),
+            "egress": spec.get("egress", []),
+        })
     return result
 
 

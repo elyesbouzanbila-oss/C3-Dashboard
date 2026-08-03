@@ -5620,3 +5620,219 @@ a:focus-visible {
     justify-content: center;
   }
 }
+
+/* ─── Workload Endpoints + Policy Impact (policy ↔ pod matrix) ── */
+
+/* Endpoint sub-line (node / IP) under the pod name */
+.endpoint-sub {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+
+/* Interface status pill */
+.endpoint-interface {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  padding: 3px 9px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+.endpoint-interface-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.endpoint-interface.up {
+  color: var(--success);
+  background-color: var(--success-light);
+}
+
+.endpoint-interface.up .endpoint-interface-dot {
+  background-color: var(--success);
+  box-shadow: 0 0 6px var(--success);
+}
+
+.endpoint-interface.down {
+  color: var(--text-tertiary);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.endpoint-interface.down .endpoint-interface-dot {
+  background-color: var(--text-tertiary);
+}
+
+/* Rule digest chips (allow / deny / log counts) */
+.digest-group {
+  display: inline-flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.digest-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.digest-allow {
+  color: var(--success);
+  background-color: var(--success-light);
+}
+
+.digest-deny {
+  color: var(--danger);
+  background-color: var(--danger-light);
+}
+
+.digest-log {
+  color: var(--warning);
+  background-color: var(--warning-light);
+}
+
+.digest-pass {
+  color: var(--info);
+  background-color: rgba(90, 180, 217, 0.12);
+}
+
+/* Policy Impact panel */
+.impact-picker {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.impact-select {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  padding: 10px 12px;
+  min-width: 240px;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.impact-select:focus-visible {
+  border-color: var(--primary);
+}
+
+.impact-selector {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--info);
+  background-color: rgba(90, 180, 217, 0.1);
+  padding: 1px 6px;
+  border-radius: 4px;
+  word-break: break-all;
+}
+
+.impact-policy-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius);
+  margin-bottom: 12px;
+}
+
+.impact-policy-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.impact-policy-name {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.impact-policy-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 0;
+}
+
+.impact-policy-meta {
+  flex-shrink: 0;
+}
+
+.impact-pods {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.impact-pod-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  padding: 3px 9px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+.impact-dir {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  min-width: 34px;
+}
+
+.impact-dir.in {
+  color: var(--info);
+  background-color: rgba(90, 180, 217, 0.12);
+}
+
+.impact-dir.out {
+  color: var(--primary);
+  background-color: var(--primary-light);
+}
+
+.impact-matched {
+  display: inline-flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  align-items: center;
+}

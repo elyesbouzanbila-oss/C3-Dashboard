@@ -312,6 +312,64 @@ class TestCniPolicyCoverage:
         assert any(d["exposed"] for d in body["data"])
 
 
+class TestCniPolicyMatrix:
+    PATCH_PODS = "services.network_service.get_pods"
+    PATCH_POLICIES = "routers.cni.calico_service.get_cni_policies_detailed"
+
+    @patch(PATCH_PODS, new_callable=AsyncMock)
+    @patch(PATCH_POLICIES, new_callable=AsyncMock)
+    def test_success(self, mock_policies, mock_pods):
+        """Success path returns both workload endpoints and policy impacts."""
+        from types import SimpleNamespace
+        mock_pods.return_value = [
+            SimpleNamespace(**{
+                "name": "api-1", "namespace": "production",
+                "labels": {"app": "api-server"},
+                "node_name": "worker-1", "pod_ip": "10.244.1.10", "phase": "Running",
+            }),
+        ]
+        mock_policies.return_value = [
+            {
+                "name": "allow-api-egress", "namespace": "production",
+                "type": "NetworkPolicy", "selector": "app == 'api-server'",
+                "ingress": [],
+                "egress": [{"action": "Allow", "destination": {"selector": "app == 'database'", "ports": [5432]}}],
+            },
+        ]
+        body = assert_ok(client.get("/api/cni/policy-matrix"))
+        assert "workload_endpoints" in body["data"]
+        assert "policy_impacts" in body["data"]
+        ep = body["data"]["workload_endpoints"][0]
+        assert ep["pod_name"] == "api-1"
+        assert ep["exposed"] is False
+        assert ep["interface_status"] == "up"
+        imp = body["data"]["policy_impacts"][0]
+        assert imp["name"] == "allow-api-egress"
+        assert imp["selected_count"] == 1
+
+    @patch(PATCH_PODS, new_callable=AsyncMock)
+    @patch(PATCH_POLICIES, new_callable=AsyncMock)
+    def test_error_fallback(self, mock_policies, mock_pods, monkeypatch):
+        """K8s failure returns error status (mock data only in K8S_MODE=mock)."""
+        monkeypatch.delenv("K8S_MODE", raising=False)
+        mock_pods.side_effect = RuntimeError("no cluster")
+        body = assert_ok(client.get("/api/cni/policy-matrix"), "error")
+        assert body["data"] == {"workload_endpoints": [], "policy_impacts": []}
+        assert "no cluster" in body.get("error", "")
+
+    @patch(PATCH_PODS, new_callable=AsyncMock)
+    @patch(PATCH_POLICIES, new_callable=AsyncMock)
+    def test_mock_mode_fallback(self, mock_policies, mock_pods, monkeypatch):
+        """With K8S_MODE=mock, serve the demo policy matrix built from mock data."""
+        monkeypatch.setenv("K8S_MODE", "mock")
+        mock_pods.side_effect = RuntimeError("no cluster")
+        body = assert_ok(client.get("/api/cni/policy-matrix"), "mock")
+        assert len(body["data"]["workload_endpoints"]) > 0
+        assert len(body["data"]["policy_impacts"]) > 0
+        assert all("pod_name" in d for d in body["data"]["workload_endpoints"])
+        assert all("selected_pods" in d for d in body["data"]["policy_impacts"])
+
+
 class TestCniConnectivityDiagnostics:
     _AUTH_HEADERS = {"X-API-Key": "test-key-not-real"}
 

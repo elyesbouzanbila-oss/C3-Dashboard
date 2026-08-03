@@ -5,7 +5,7 @@ import type {
   Pod, ThreatEvent, CalicoNodeStatus, BGPPeer, IPPool, IPAMBlockSummary,
   CniPolicy, CniTopologyNode, CniTopologyEdge, FelixMetrics,
   DataSourceStatus, ApiResponse, PodCoverageItem,
-  RbacBinding, PrivilegedPod,
+  RbacBinding, PrivilegedPod, PolicyMatrixData,
 } from '../types'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || ''
@@ -32,6 +32,7 @@ export interface DashboardState {
   cniTopology: { nodes: CniTopologyNode[]; edges: CniTopologyEdge[] } | null
   felixMetrics: FelixMetrics | null
   policyCoverage: PodCoverageItem[]
+  policyMatrix: PolicyMatrixData | null
   rbacBindings: RbacBinding[]
   privilegedPods: PrivilegedPod[]
   threats: ThreatEvent[]
@@ -41,6 +42,7 @@ export interface DashboardState {
   ipPoolsStatus: DataSourceStatus
   ipamStatus: DataSourceStatus
   policiesStatus: DataSourceStatus
+  policyMatrixStatus: DataSourceStatus
   felixStatus: DataSourceStatus
   topologyStatus: DataSourceStatus
   rbacBindingsStatus: DataSourceStatus
@@ -170,6 +172,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [cniTopology, setCniTopology] = useState<{ nodes: CniTopologyNode[]; edges: CniTopologyEdge[] } | null>(null)
   const [felixMetrics, setFelixMetrics] = useState<FelixMetrics | null>(null)
   const [policyCoverage, setPolicyCoverage] = useState<PodCoverageItem[]>([])
+  const [policyMatrix, setPolicyMatrix] = useState<PolicyMatrixData | null>(null)
   const [rbacBindings, setRbacBindings] = useState<RbacBinding[]>([])
   const [privilegedPods, setPrivilegedPods] = useState<PrivilegedPod[]>([])
   const [threats, setThreats] = useState<ThreatEvent[]>([])
@@ -179,6 +182,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [ipPoolsStatus, setIpPoolsStatus] = useState<DataSourceStatus>('unknown')
   const [ipamStatus, setIpamStatus] = useState<DataSourceStatus>('unknown')
   const [policiesStatus, setPoliciesStatus] = useState<DataSourceStatus>('unknown')
+  const [policyMatrixStatus, setPolicyMatrixStatus] = useState<DataSourceStatus>('unknown')
   const [felixStatus, setFelixStatus] = useState<DataSourceStatus>('unknown')
   const [topologyStatus, setTopologyStatus] = useState<DataSourceStatus>('unknown')
   const [rbacBindingsStatus, setRbacBindingsStatus] = useState<DataSourceStatus>('unknown')
@@ -288,6 +292,22 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const fetchPolicyMatrix = useCallback(async () => {
+    const res = await fetchWithRetry(`${API_BASE_URL}/api/cni/policy-matrix`)
+    if (res?.ok) {
+      const d: ApiResponse<PolicyMatrixData> = await res.json()
+      setPolicyMatrix(d.data || null)
+      setPolicyMatrixStatus(d.status === 'success' ? 'live' : d.status === 'mock' ? 'mock' : 'error')
+    } else {
+      setPolicyMatrixStatus('error')
+    }
+  }, [])
+
+  // The policies tab needs both coverage and the policy-matrix (endpoints + impact)
+  const fetchPoliciesTab = useCallback(async () => {
+    await Promise.all([fetchCoverage(), fetchPolicyMatrix()])
+  }, [fetchCoverage, fetchPolicyMatrix])
+
   const fetchSecurity = useCallback(async () => {
     const [rbacRes, privRes] = await Promise.all([
       fetchWithRetry(`${API_BASE_URL}/api/security/rbac`),
@@ -334,10 +354,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     'topology': fetchTopology,
     'dashboard': fetchTopology,   // dashboard shows topology summary
     'cni-health': fetchFelix,
-    'policies': fetchCoverage,
+    'policies': fetchPoliciesTab,
     'security': fetchSecurity,
     'threats': fetchThreatHistory,
-  }), [fetchTopology, fetchFelix, fetchCoverage, fetchSecurity, fetchThreatHistory])
+  }), [fetchTopology, fetchFelix, fetchPoliciesTab, fetchSecurity, fetchThreatHistory])
 
   // ── Manual refresh of the current view (topbar button) ─────
   // Force-fetches core data AND all supplementary data, bypassing the
@@ -350,7 +370,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       await Promise.all([
         fetchTopology(),
         fetchFelix(),
-        fetchCoverage(),
+        fetchPoliciesTab(),
         fetchSecurity(),
         fetchThreatHistory(),
       ])
@@ -363,9 +383,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setIpamStatus('error')
       setPoliciesStatus('error')
       setFelixStatus('error')
+      setPolicyMatrixStatus('error')
       setTopologyStatus('error')
     }
-  }, [fetchCoreData, fetchTopology, fetchFelix, fetchCoverage, fetchSecurity, fetchThreatHistory])
+  }, [fetchCoreData, fetchTopology, fetchFelix, fetchPoliciesTab, fetchSecurity, fetchThreatHistory])
 
   // ── Silent refresh (background — no loading overlay) ────────
   const silentRefresh = useCallback(async () => {
@@ -395,7 +416,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       await Promise.all([
         fetchTopology(),
         fetchFelix(),
-        fetchCoverage(),
+        fetchPoliciesTab(),
         fetchSecurity(),
       ])
     } catch (err) {
@@ -403,7 +424,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false)
     }
-  }, [fetchCoreData, fetchTopology, fetchFelix, fetchCoverage, fetchSecurity])
+  }, [fetchCoreData, fetchTopology, fetchFelix, fetchPoliciesTab, fetchSecurity])
 
   // ── Per-tab subscription: called when a tab becomes active ──
   const subscribeTab = useCallback((tabId: string) => {
@@ -484,6 +505,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         cniTopology,
         felixMetrics,
         policyCoverage,
+        policyMatrix,
         rbacBindings,
         privilegedPods,
       },
@@ -499,7 +521,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
-  }, [pods, cniNodes, bgpPeers, ipPools, ipamBlocks, cniPolicies, cniTopology, felixMetrics, policyCoverage, rbacBindings, privilegedPods, threats])
+  }, [pods, cniNodes, bgpPeers, ipPools, ipamBlocks, cniPolicies, cniTopology, felixMetrics, policyCoverage, policyMatrix, rbacBindings, privilegedPods, threats])
 
   const clearThreats = useCallback(() => { setThreats([]) }, [])
 
@@ -523,8 +545,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const value: DashboardState = {
     loading, setLoading, error, setError,
     pods, cniNodes, bgpPeers, ipPools, ipamBlocks, cniPolicies,
-    cniTopology, felixMetrics, policyCoverage, rbacBindings, privilegedPods, threats,
-    cniNodesStatus, ipPoolsStatus, ipamStatus, policiesStatus,
+    cniTopology, felixMetrics, policyCoverage, policyMatrix, rbacBindings, privilegedPods, threats,
+    cniNodesStatus, ipPoolsStatus, ipamStatus, policiesStatus, policyMatrixStatus,
     felixStatus, topologyStatus, rbacBindingsStatus, privilegedPodsStatus,
     wsConnected,
     activeTab, setActiveTab: handleSetActiveTab,

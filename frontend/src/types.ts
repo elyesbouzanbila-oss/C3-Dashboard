@@ -234,6 +234,58 @@ export interface PodCoverageItem {
   exposed: boolean
 }
 
+// ─── Policy ↔ Pod Matrix (Workload Endpoints + Policy Impact) ────
+
+export interface EndpointRuleDigest {
+  allow: number
+  deny: number
+  log: number
+  pass: number
+  ports: string[]
+}
+
+export interface WorkloadEndpoint {
+  namespace: string
+  pod_name: string
+  labels: Record<string, string>
+  node_name?: string | null
+  pod_ip?: string | null
+  phase?: string | null
+  interface_status: 'up' | 'down'
+  selecting_policies: Array<{ name: string; type: string }>
+  exposed: boolean
+  ingress: EndpointRuleDigest
+  egress: EndpointRuleDigest
+}
+
+export interface PolicyRuleDetail {
+  index: number
+  direction: 'Ingress' | 'Egress'
+  action: string
+  protocol?: string | null
+  ports: string[]
+  source_selector?: string | null
+  destination_selector?: string | null
+  matched_pods: Array<{ namespace: string; pod_name: string }>
+  matched_count: number
+}
+
+export interface PolicyImpact {
+  name: string
+  namespace?: string | null
+  type: 'NetworkPolicy' | 'GlobalNetworkPolicy'
+  selector?: string | null
+  selected_pods: Array<{ namespace: string; pod_name: string }>
+  selected_count: number
+  rules: PolicyRuleDetail[]
+  actions: string[]
+}
+
+export interface PolicyMatrixData {
+  workload_endpoints: WorkloadEndpoint[]
+  policy_impacts: PolicyImpact[]
+}
+
 export interface ApiResponse<T> {
   status: 'success' | 'mock' | 'error'
   data: T

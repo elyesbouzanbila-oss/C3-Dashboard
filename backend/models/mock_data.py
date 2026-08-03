@@ -601,6 +601,149 @@ MOCK_COVERAGE = [
     },
 ]
 
+# ─── Policy ↔ Pod Matrix Mock Data ───────────────────────────────
+# Detailed policy specs (with full ingress/egress rules) used to build the
+# policy-matrix demo via the same engine that serves live data, so the mock
+# stays consistent with what the engine would compute on a real cluster.
+
+MOCK_CNI_POLICY_DETAILS = [
+    {
+        "name": "default-deny",
+        "namespace": None,
+        "type": "GlobalNetworkPolicy",
+        "policy_type": ["Ingress", "Egress"],
+        "selector": "all()",
+        "order": 1000.0,
+        "ingress": [{"action": "Deny"}],
+        "egress": [{"action": "Deny"}],
+    },
+    {
+        "name": "allow-kube-dns",
+        "namespace": None,
+        "type": "GlobalNetworkPolicy",
+        "policy_type": ["Egress"],
+        "selector": "all()",
+        "order": 900.0,
+        "ingress": [],
+        "egress": [
+            {
+                "action": "Allow",
+                "protocol": "UDP",
+                "source": {},
+                "destination": {"selector": "k8s-app == 'kube-dns'", "ports": [53]},
+            },
+            {
+                "action": "Allow",
+                "protocol": "TCP",
+                "source": {},
+                "destination": {"selector": "k8s-app == 'kube-dns'", "ports": [53]},
+            },
+        ],
+    },
+    {
+        "name": "allow-frontend-ingress",
+        "namespace": "production",
+        "type": "NetworkPolicy",
+        "policy_type": ["Ingress"],
+        "selector": "app == 'frontend'",
+        "order": 500.0,
+        "ingress": [
+            {
+                "action": "Allow",
+                "protocol": "TCP",
+                "source": {"selector": "app == 'api-server'"},
+                "destination": {"ports": [8080]},
+            }
+        ],
+        "egress": [],
+    },
+    {
+        "name": "allow-api-egress",
+        "namespace": "production",
+        "type": "NetworkPolicy",
+        "policy_type": ["Ingress", "Egress"],
+        "selector": "app == 'api-server'",
+        "order": 400.0,
+        "ingress": [
+            {
+                "action": "Allow",
+                "protocol": "TCP",
+                "source": {"selector": "app == 'frontend'"},
+                "destination": {"ports": [8080]},
+            }
+        ],
+        "egress": [
+            {
+                "action": "Allow",
+                "protocol": "TCP",
+                "source": {},
+                "destination": {"selector": "app == 'database'", "ports": [5432]},
+            }
+        ],
+    },
+    {
+        "name": "allow-monitoring-scrape",
+        "namespace": "monitoring",
+        "type": "NetworkPolicy",
+        "policy_type": ["Ingress"],
+        "selector": "app == 'prometheus'",
+        "order": 300.0,
+        "ingress": [
+            {
+                "action": "Allow",
+                "protocol": "TCP",
+                "source": {"selector": "app == 'prometheus'"},
+                "destination": {"ports": [9090]},
+            }
+        ],
+        "egress": [],
+    },
+]
+
+# Demo pods referenced by the matrix builder that are not part of MOCK_PODS
+# (kept separate so existing MOCK_PODS-based tests are unaffected).
+# Deliberately mirrors MOCK_COVERAGE's pod list so the Endpoints and Coverage
+# views tell the same story under K8S_MODE=mock.
+_MOCK_MATRIX_EXTRA_PODS = [
+    {
+        "name": "nginx-frontend-7d8",
+        "namespace": "production",
+        "labels": {"app": "frontend"},
+        "node_name": "worker-1",
+        "pod_ip": "10.244.1.30",
+        "phase": "Running",
+    },
+]
+
+
+def build_mock_policy_matrix():
+    """Build the demo policy-matrix from shared mock data using the real engine.
+
+    Runs ``compute_workload_endpoints`` + ``compute_policy_impact`` over
+    MOCK_PODS (plus a few extra demo pods) and the detailed mock policy specs,
+    so demo output matches what the live engine would produce.
+    """
+    from services.policy_engine import compute_policy_impact, compute_workload_endpoints
+
+    pods = [
+        {
+            "name": p["name"],
+            "namespace": p["namespace"],
+            "labels": p.get("labels", {}),
+            "node_name": p.get("node_name"),
+            "pod_ip": p.get("pod_ip"),
+            "phase": p.get("phase"),
+        }
+        for p in MOCK_PODS
+    ]
+    pods.extend(_MOCK_MATRIX_EXTRA_PODS)
+
+    return {
+        "workload_endpoints": compute_workload_endpoints(pods, MOCK_CNI_POLICY_DETAILS),
+        "policy_impacts": compute_policy_impact(MOCK_CNI_POLICY_DETAILS, pods),
+    }
+
+
 def build_mock_topology():
     """Build mock topology dict from shared mock data."""
     nodes = []

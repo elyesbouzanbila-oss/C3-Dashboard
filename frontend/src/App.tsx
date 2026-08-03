@@ -30,7 +30,7 @@ function AppContent() {
     activeTab,
     wsConnected,
     exportData, connectWebSocket, setActiveTab, silentRefresh, refreshView,
-    cniNodesStatus, ipPoolsStatus, ipamStatus, policiesStatus,
+    cniNodesStatus, ipPoolsStatus, ipamStatus, policiesStatus, policyMatrixStatus,
     felixStatus, topologyStatus, rbacBindingsStatus, privilegedPodsStatus,
     threats,
   } = useDashboard()
@@ -58,6 +58,7 @@ function AppContent() {
       ['IP pools', ipPoolsStatus],
       ['IPAM', ipamStatus],
       ['Policies', policiesStatus],
+      ['Policy matrix', policyMatrixStatus],
       ['Felix', felixStatus],
       ['Topology', topologyStatus],
       ['RBAC', rbacBindingsStatus],
@@ -65,7 +66,7 @@ function AppContent() {
     ]
     return sources.filter(([, status]) => status === 'mock').map(([label]) => label)
   }, [
-    cniNodesStatus, ipPoolsStatus, ipamStatus, policiesStatus,
+    cniNodesStatus, ipPoolsStatus, ipamStatus, policiesStatus, policyMatrixStatus,
     felixStatus, topologyStatus, rbacBindingsStatus, privilegedPodsStatus,
   ])
 
