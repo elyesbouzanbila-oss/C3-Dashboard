@@ -1,6 +1,8 @@
 # Calico NetworkPolicy for the dashboard backend.
 #
-# Upgraded from networking.k8s.io/v1 to a projectcalico.org/v3 CRD so the
+# Upgraded from networking.k8s.io/v1 to a Calico CRD (crd.projectcalico.org/v1,
+# served by Tigera operator installs of Calico v3.27+ — the older
+# projectcalico.org/v3 group is not served on those clusters) so the
 # policy is visible to the dashboard's policy/coverage views (they only read
 # Calico CRDs, which is why this workload showed as EXPOSED despite having a
 # policy applied).
@@ -8,7 +10,7 @@
 # Restricts INGRESS only. Egress is intentionally left open: the backend
 # reaches Redis, kube-apiserver, Prometheus and the AI API — omitting Egress
 # from `types` leaves all of those flows untouched.
-apiVersion: projectcalico.org/v3
+apiVersion: crd.projectcalico.org/v1
 kind: NetworkPolicy
 metadata:
   name: dashboard-backend

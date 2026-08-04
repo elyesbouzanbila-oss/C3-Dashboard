@@ -1,11 +1,11 @@
 # Calico NetworkPolicy for the dashboard Redis cache.
 #
-# Upgraded from networking.k8s.io/v1 to a projectcalico.org/v3 CRD so it
-# shows up in the dashboard's policy/coverage views.
+# Upgraded from networking.k8s.io/v1 to a Calico CRD (crd.projectcalico.org/v1)
+# so it shows up in the dashboard's policy/coverage views.
 #
 # The cache is private to the backend: ingress only from dashboard-backend
 # on 6379. Egress is unrestricted (policyTypes omits Egress).
-apiVersion: projectcalico.org/v3
+apiVersion: crd.projectcalico.org/v1
 kind: NetworkPolicy
 metadata:
   name: dashboard-redis

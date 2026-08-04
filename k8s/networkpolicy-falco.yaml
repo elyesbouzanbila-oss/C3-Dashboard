@@ -15,7 +15,7 @@
 # no inbound traffic; this policy only constrains egress (falcosidekick webhook
 # + DNS). Restricting egress at all is what makes the workload show as covered
 # in the dashboard instead of EXPOSED.
-apiVersion: projectcalico.org/v3
+apiVersion: crd.projectcalico.org/v1
 kind: NetworkPolicy
 metadata:
   name: falco
@@ -51,7 +51,7 @@ spec:
 ---
 # falcosidekick — receives falco events on its webhook and forwards them to
 # the dashboard threat ingestion endpoint.
-apiVersion: projectcalico.org/v3
+apiVersion: crd.projectcalico.org/v1
 kind: NetworkPolicy
 metadata:
   name: falcosidekick
