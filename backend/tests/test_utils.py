@@ -257,6 +257,31 @@ class TestCalicoSelectorMatches:
     def test_has_with_hyphenated_key(self):
         assert self.match("has(k8s-app)", {"k8s-app": "kube-dns"}) is True
 
+    # ── Quoted label names (keys with / or .) ─────────────────────
+
+    def test_quoted_key_equality(self):
+        """Keys with slashes/dots may be quoted (Calico allows it)."""
+        labels = {"app.kubernetes.io/name": "falco"}
+        assert self.match("'app.kubernetes.io/name' == 'falco'", labels) is True
+        assert self.match("'app.kubernetes.io/name' == 'other'", labels) is False
+
+    def test_quoted_key_unquoted_value_forms(self):
+        """Mixed quoting styles parse and evaluate identically."""
+        labels = {"app.kubernetes.io/name": "falco"}
+        assert self.match("'app.kubernetes.io/name' == \"falco\"", labels) is True
+        assert self.match("app.kubernetes.io/name == 'falco'", labels) is True
+
+    def test_quoted_key_in_has(self):
+        assert self.match("has('app.kubernetes.io/name')",
+                          {"app.kubernetes.io/name": "falco"}) is True
+        assert self.match("has('app.kubernetes.io/name')", {"app": "x"}) is False
+
+    def test_quoted_key_in_compound(self):
+        assert self.match(
+            "'app.kubernetes.io/name' == 'falco' && has(app)",
+            {"app.kubernetes.io/name": "falco", "app": "falco"},
+        ) is True
+
     def test_unsupported_selector_treated_as_no_match(self):
         """A selector that can't be parsed is treated as not matching (safe)."""
         assert self.match("app == 'web' &&", {"app": "web"}) is False
@@ -282,6 +307,11 @@ class TestSelectorIsSupported:
         from services.utils import selector_is_supported
         assert selector_is_supported("app == 'nginx'") is True
         assert selector_is_supported("has(app) && app != 'redis'") is True
+
+    def test_quoted_label_keys_supported(self):
+        from services.utils import selector_is_supported
+        assert selector_is_supported("'app.kubernetes.io/name' == 'falco'") is True
+        assert selector_is_supported("has('app.kubernetes.io/name')") is True
 
     def test_advanced_syntax_supported(self):
         from services.utils import selector_is_supported

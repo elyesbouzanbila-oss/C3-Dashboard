@@ -1,0 +1,105 @@
+# Calico NetworkPolicies for the Falco stack (namespace: falco).
+#
+# This file is NOT part of k8s/kustomization.yaml: that kustomization
+# rewrites every resource into the k8s-dashboard namespace, which would pull
+# these policies out of the falco namespace. Apply it separately with:
+#
+#   kubectl apply -f k8s/networkpolicy-falco.yaml
+#
+# Data flow secured here:
+#   falco → falcosidekick (webhook, port 2801) → dashboard backend
+#   (POST /api/threats/falco, either direct or via the frontend proxy)
+# --------------------------------------------------------------------------
+
+# falco — DaemonSet that surfaces system calls as threat events. It receives
+# no inbound traffic; this policy only constrains egress (falcosidekick webhook
+# + DNS). Restricting egress at all is what makes the workload show as covered
+# in the dashboard instead of EXPOSED.
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: falco
+  namespace: falco
+spec:
+  selector: app.kubernetes.io/name == 'falco'
+  types:
+    - Egress
+  egress:
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: app == 'falcosidekick'
+        ports:
+          - 2801
+    # DNS to kube-dns (Calico auto-allows DNS lookups, kept explicit here for
+    # clarity and in case that feature is disabled).
+    - action: Allow
+      protocol: UDP
+      destination:
+        namespaceSelector: projectcalico.org/name == 'kube-system'
+        selector: k8s-app == 'kube-dns'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        namespaceSelector: projectcalico.org/name == 'kube-system'
+        selector: k8s-app == 'kube-dns'
+        ports:
+          - 53
+
+---
+# falcosidekick — receives falco events on its webhook and forwards them to
+# the dashboard threat ingestion endpoint.
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: falcosidekick
+  namespace: falco
+spec:
+  selector: app == 'falcosidekick'
+  types:
+    - Ingress
+    - Egress
+  ingress:
+    - action: Allow
+      protocol: TCP
+      source:
+        selector: app.kubernetes.io/name == 'falco'
+      destination:
+        ports:
+          - 2801
+  egress:
+    # Threat events → dashboard backend webhook (direct path).
+    - action: Allow
+      protocol: TCP
+      destination:
+        namespaceSelector: projectcalico.org/name == 'k8s-dashboard'
+        selector: app == 'dashboard-backend'
+        ports:
+          - 8000
+    # Threat events → dashboard frontend (webhook posted to the public URL,
+    # nginx proxies /api/* to the backend). Both the HTTP (5173) and HTTPS
+    # (443) frontend ports are allowed in case the webhook uses the TLS URL.
+    - action: Allow
+      protocol: TCP
+      destination:
+        namespaceSelector: projectcalico.org/name == 'k8s-dashboard'
+        selector: app == 'dashboard-frontend'
+        ports:
+          - 5173
+          - 443
+    - action: Allow
+      protocol: UDP
+      destination:
+        namespaceSelector: projectcalico.org/name == 'kube-system'
+        selector: k8s-app == 'kube-dns'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        namespaceSelector: projectcalico.org/name == 'kube-system'
+        selector: k8s-app == 'kube-dns'
+        ports:
+          - 53

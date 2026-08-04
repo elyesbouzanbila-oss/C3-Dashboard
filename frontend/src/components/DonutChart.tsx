@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useId } from 'react'
 
 interface DonutChartProps {
   percentage: number
@@ -25,19 +25,8 @@ export function DonutChart({
 }: DonutChartProps) {
   const radius = (size - strokeWidth) / 2
   const circumference = 2 * Math.PI * radius
-  const [offset, setOffset] = useState(animated ? circumference : circumference * (1 - percentage / 100))
-  const gradientId = `donut-grad-${Math.random().toString(36).slice(2, 8)}`
-
-  useEffect(() => {
-    if (!animated) {
-      setOffset(circumference * (1 - percentage / 100))
-      return
-    }
-    const timer = setTimeout(() => {
-      setOffset(circumference * (1 - percentage / 100))
-    }, 100)
-    return () => clearTimeout(timer)
-  }, [percentage, circumference, animated])
+  const gradientId = useId()
+  const offset = circumference * (1 - percentage / 100)
 
   // Respect an explicit caller color; only auto-map when the caller left the
   // default (utilization semantics: high percentage -> warning/danger).

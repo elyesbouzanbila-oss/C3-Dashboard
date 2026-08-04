@@ -1,18 +1,38 @@
-apiVersion: networking.k8s.io/v1
+# Calico NetworkPolicy for the dashboard backend.
+#
+# Upgraded from networking.k8s.io/v1 to a projectcalico.org/v3 CRD so the
+# policy is visible to the dashboard's policy/coverage views (they only read
+# Calico CRDs, which is why this workload showed as EXPOSED despite having a
+# policy applied).
+#
+# Restricts INGRESS only. Egress is intentionally left open: the backend
+# reaches Redis, kube-apiserver, Prometheus and the AI API — omitting Egress
+# from `types` leaves all of those flows untouched.
+apiVersion: projectcalico.org/v3
 kind: NetworkPolicy
 metadata:
   name: dashboard-backend
 spec:
-  podSelector:
-    matchLabels:
-      app: dashboard-backend
-  policyTypes:
+  selector: app == 'dashboard-backend'
+  types:
     - Ingress
   ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app: dashboard-frontend
-      ports:
-        - port: 8000
-          protocol: TCP
+    # Reverse proxy: frontend nginx forwards /api/* to the backend.
+    - action: Allow
+      protocol: TCP
+      source:
+        selector: app == 'dashboard-frontend'
+      destination:
+        ports:
+          - 8000
+    # Falco webhook ingestion: falcosidekick posts threat events to
+    # /api/threats/falco. Allowed both direct to the backend service and via
+    # the frontend nginx proxy (which forwards /api/* here anyway).
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: projectcalico.org/name == 'falco'
+        selector: app == 'falcosidekick'
+      destination:
+        ports:
+          - 8000

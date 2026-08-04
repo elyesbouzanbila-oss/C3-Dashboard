@@ -91,6 +91,22 @@ def read_root():
     return {"status": "ok", "message": "K8s Dashboard API is running"}
 
 
+# ── Kubernetes probe endpoints ─────────────────────────────────
+# /healthz (liveness) — the process is up and serving.
+# /readyz (readiness) — lifespan startup finished; endpoints serve data.
+# Both stay dependency-free on purpose: Redis / API failures are non-fatal by
+# design (graceful degradation), so readiness must not flap on them.
+
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
+
+
+@app.get("/readyz")
+def readyz():
+    return {"status": "ready"}
+
 # Include mock endpoints with prefixes (primary handlers when K8s not available)
 app.include_router(mock.router, prefix="", tags=["mock"])
 

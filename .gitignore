@@ -19,13 +19,8 @@ Thumbs.db
 backend/SECURITY_FIXES.md
 rapport/
 .freebuff/
-
-# Community-installed agent skills (npx skills add) — machine-local, not project source
 .agents/skills/
 .claude/skills/
 skills-lock.json
-
-# Secret YAML files — generate real secrets on the cluster via kubectl create secret
-# See Phase 3 in the deployment docs. These are placeholders only.
 k8s/secret.yaml
 k8s/secret-redis.yaml

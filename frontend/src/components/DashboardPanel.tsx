@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useDashboard, useTabSubscription } from '../context/DashboardContext'
 import type { CalicoNodeStatus } from '../types'
 import { DataSourceBadge } from './DataSourceBadge'
@@ -72,7 +72,7 @@ export function DashboardPanel({ onNavigate }: DashboardPanelProps) {
   const {
     cniNodes, bgpPeers, ipPools, ipamBlocks, cniPolicies: policies,
     cniTopology, loading, cniNodesStatus, ipamStatus,
-    policiesStatus, felixStatus, threats, wsConnected,
+    policiesStatus, felixStatus, threats,
     exportData, silentRefresh,
   } = useDashboard()
   
@@ -100,13 +100,7 @@ export function DashboardPanel({ onNavigate }: DashboardPanelProps) {
   const animIpPools = useCountUp(ipPoolsCount, 700, animate)
   const animPolicies = useCountUp(policies.length, 700, animate)
 
-  const [lastUpdated, setLastUpdated] = useState(new Date())
-
-  useEffect(() => {
-    if (!loading) {
-      setLastUpdated(new Date())
-    }
-  }, [cniNodes, bgpPeers, loading])
+  const lastUpdated = useMemo(() => new Date(), [])
 
   const handleCardClick = useCallback((section: string) => {
     onNavigate?.(section)

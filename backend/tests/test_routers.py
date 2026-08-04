@@ -63,6 +63,21 @@ def assert_ok(resp, expected_status: str = "success") -> Dict[str, Any]:
     return body
 
 
+# ─── Probe endpoints — /healthz and /readyz ───────────────────────
+# These back the Kubernetes liveness/readiness probes on the backend
+# Deployment. If these routes are ever removed, the pods crash-loop
+# in-cluster, so the contract is pinned here.
+
+class TestProbeEndpoints:
+    def test_healthz(self):
+        """Liveness endpoint returns 200 ok."""
+        assert_ok(client.get("/healthz"), "ok")
+
+    def test_readyz(self):
+        """Readiness endpoint returns 200 ready."""
+        assert_ok(client.get("/readyz"), "ready")
+
+
 # ─── CNI Router — /api/cni/ ───────────────────────────────────────
 
 class TestCniNodes:

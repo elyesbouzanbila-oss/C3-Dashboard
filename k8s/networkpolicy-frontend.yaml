@@ -1,0 +1,22 @@
+# Calico NetworkPolicy for the dashboard frontend (nginx).
+#
+# The frontend is the cluster's public entrypoint (NodePort service, TLS on
+# 443), so ingress is intentionally open from any source on the web ports
+# (5173 http / 443 https). Egress stays open so nginx can proxy /api/* to
+# the backend.
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: dashboard-frontend
+spec:
+  selector: app == 'dashboard-frontend'
+  types:
+    - Ingress
+  ingress:
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        ports:
+          - 5173
+          - 443

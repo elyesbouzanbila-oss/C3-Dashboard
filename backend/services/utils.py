@@ -24,7 +24,8 @@ def label_selector_matches(pod_labels: Dict[str, str], selector: Dict[str, str])
 # small tokenizer + recursive-descent parser. Supported syntax:
 #
 #   - all()                      — matches everything
-#   - has(label)                 — pod has the label key
+#   - has(label)                 — pod has the label key (label may be quoted)
+#   - 'label.key' == 'value'     — quoted label keys (slashes/dots) supported
 #   - !has(label)                — pod does not have the label key
 #   - label == 'value' / =       — exact match (single or double quotes)
 #   - label != 'value'           — exact mismatch
@@ -159,7 +160,9 @@ class _SelectorParser:
             node = self._parse_or()
             self._expect("RPAREN")
             return node
-        if tok[0] == "IDENT":
+        # Label names may be bare identifiers or quoted (e.g. keys containing
+        # slashes/dots are often written as 'app.kubernetes.io/name').
+        if tok[0] in ("IDENT", "STRING"):
             return self._parse_predicate()
         raise SelectorParseError(f"Unexpected token {tok!r}")
 
@@ -172,10 +175,13 @@ class _SelectorParser:
             self._expect("RPAREN")
             return ("const", True)
 
-        # ``has(label)`` — key exists
+        # ``has(label)`` — key exists (label may be bare or quoted)
         if name == "has" and self._peek()[0] == "LPAREN":
             self._pop()
-            key = self._expect("IDENT")[1]
+            key_tok = self._peek()
+            if key_tok[0] not in ("IDENT", "STRING"):
+                raise SelectorParseError(f"Expected label name, got {key_tok!r}")
+            key = self._pop()[1]
             self._expect("RPAREN")
             return ("has", key)
 
@@ -330,7 +336,8 @@ def calico_selector_matches(pod_labels: Dict[str, str], selector: str) -> bool:
 
     Handles common Calico selector patterns:
       - ``all()`` — matches everything
-      - ``has(label)`` / ``!has(label)`` — key presence
+      - ``has(label)`` / ``!has(label)`` — key presence (quoted keys allowed)
+      - ``'label.key' == 'value'`` — quoted label names supported
       - ``label == 'value'`` / ``!=`` / ``in {...}`` / ``not in {...}``
       - ``label contains 'substr'`` / ``startsWith`` / ``endsWith``
       - ``label matches /regex/`` (with optional ``i``/``m``/``s`` flags)

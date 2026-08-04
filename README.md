@@ -2,10 +2,11 @@
 
 ![CI](https://github.com/elyesbouzanbila-oss/k8s-cluster-dashboard/actions/workflows/ci.yml/badge.svg)
 
-A dedicated Calico CNI diagnostics and command center for Kubernetes clusters.
+A dedicated Kubernetes command center built around Calico CNI diagnostics: cluster/network overview,
+Calico CNI health, IPAM, network policy inspection and coverage, topology, connectivity diagnostics,
+threat streaming, security audits, an AI assistant, and cluster resource management.
 General cluster/resource monitoring (node CPU/mem, pod resources, storage) is handled by Grafana
-(via kube-prometheus-stack). This app focuses exclusively on Calico CNI health, IPAM, network policy
-inspection, topology, and connectivity diagnostics.
+(via kube-prometheus-stack), deployed separately.
 
 ## Features
 
@@ -17,7 +18,12 @@ inspection, topology, and connectivity diagnostics.
 - **Policy Impact** — Select a policy to see the exact pods it selects and a rule-by-rule breakdown (action, protocol, ports, peer selector, matched pods)
 - **Topology** — Interactive node-to-node BGP mesh + pod overlay topology graph
 - **Diagnostics** — On-demand pod-to-pod / pod-to-service connectivity test runner
-- **Threats** — Real-time network-scoped threat event streaming via WebSocket (Falco webhook ingestion)
+- **Threats** — Real-time network-scoped threat event streaming via WebSocket (Falco webhook ingestion, with recent-event history)
+- **Security** — RBAC binding audit and privileged / root-container pod detection
+- **AI Assistant** — chat with an LLM that fetches live cluster data on demand (Tools section)
+- **Cluster Config** — super-user-protected management of IP pools, BGP peers, namespaces, services, configmaps, secrets, deployments and node cordoning, with an audit log of every write
+
+The UI is organized into four sidebar sections — **Overview, Network, Security, Tools** — with a live/demo indicator and an export button in the sidebar footer.
 
 > **Note:** General cluster monitoring (node CPU/memory, pod resource consumption, storage) is handled by **Grafana** via `kube-prometheus-stack` — deployed separately from this project.
 For deeper Felix performance charts, import Grafana dashboard [ID `12175`](https://grafana.com/grafana/dashboards/12175-calico-felix/).
@@ -85,10 +91,12 @@ kubectl apply -k k8s/
 ```
 
 This creates a namespace `k8s-dashboard` and deploys everything under it.
-The frontend is exposed as a **NodePort** service — access the dashboard at:
+The frontend is exposed as a **NodePort** service (HTTP + HTTPS). Find the
+assigned ports and browse to the node:
 
-```
-http://<any-node-ip>:30080
+```bash
+kubectl get svc -n k8s-dashboard dashboard-frontend
+# then visit https://<any-node-ip>:<https-node-port>
 ```
 
 > **Note:** The backend (`dashboard-backend`) uses `ClusterIP` and is only reachable
@@ -98,7 +106,7 @@ http://<any-node-ip>:30080
 ### Building Container Images
 
 If deploying to a local cluster (kind, minikube, etc.), build the images first so they're
-available locally (the deployments use `imagePullPolicy: Never`):
+available locally (the deployments use `imagePullPolicy: IfNotPresent` — the image is used if present locally, otherwise pulled from a registry):
 
 ```bash
 docker compose build
@@ -120,7 +128,7 @@ minikube image load dashboard-frontend:latest
 
 ## Configuration
 
-The backend supports three modes for connecting to your Kubernetes cluster.
+The backend supports four modes for connecting to your Kubernetes cluster (or none, for the demo).
 
 ### Mode 1: kubeconfig (default, recommended for local dev)
 
@@ -143,6 +151,17 @@ K8S_TOKEN=<your-service-account-token>
 K8S_MODE=incluster
 ```
 
+### Mode 4: Mock / demo (no cluster required)
+
+```env
+K8S_MODE=mock
+```
+
+Serves fabricated demo data from `models/mock_data.py`. **Mock is opt-in** —
+without this mode, endpoints that can't reach the cluster return an error
+envelope instead of fake data. The frontend shows a **DEMO** badge only when
+mock mode is active.
+
 ### Environment Variables
 
 #### Backend (`.env`)
@@ -159,12 +178,25 @@ FRONTEND_URL=http://localhost:5173
 REDIS_URL=redis://redis:6379/0
 
 # K8s connection (pick one mode)
-K8S_MODE=kubeconfig          # kubeconfig | token | incluster
+K8S_MODE=kubeconfig          # kubeconfig | token | incluster | mock
 K8S_SERVER=                  # Required for token mode
 K8S_TOKEN=                   # Required for token mode
 
 # Prometheus (optional — enables time-series charts)
 PROMETHEUS_URL=http://prometheus-k8s.monitoring.svc:9090
+
+# Super-user password for Cluster Config write endpoints (optional).
+# When empty, writes are allowed without a password but still audited.
+SUPER_USER_PASSWORD=
+
+# Redis auth (optional — must match the Redis deployment)
+REDIS_PASSWORD=
+
+# AI assistant (optional — enables Tools → AI chat)
+AI_API_KEY=
+AI_BASE_URL=https://api.groq.com/openai/v1
+AI_MODEL=llama-3.3-70b-versatile
+AI_ENABLED=true
 ```
 
 #### Frontend (`.env.local`)
@@ -183,29 +215,37 @@ VITE_API_URL=http://localhost:8000
 > reverse proxy provides same-origin isolation. The Falco webhook (`/api/threats/falco`)
 > can be authenticated via HMAC-SHA256 signature using `FALCO_WEBHOOK_SECRET`.
 >
-> **Rate limiting:** The backend uses `slowapi` to rate-limit the Falco webhook endpoint
-> (10 POST requests per minute per IP). All other endpoints are currently unthrottled.
+> **Rate limiting:** `slowapi` protects the mutating / high-traffic endpoints:
+> Falco webhook (600 POST/min/IP), threat history (30/min/IP), connectivity
+> diagnostics (10/min/IP) and super-user auth (5/min/IP).
 
 | Endpoint                         | Method     | Description                              | Rate-Limited? |
 |----------------------------------|------------|------------------------------------------|---------------|
-| `/mock/pods`                     | GET        | Mock pod data                           | No |
-| `/mock/topology`                 | GET        | Mock topology                           | No |
-| `/mock/rbac`                     | GET        | Mock RBAC bindings                      | No |
-| `/mock/privileged`               | GET        | Mock privileged pod data                | No |
+| `/` `/healthz` `/readyz`         | GET        | Health/probe endpoints (liveness + readiness) | No |
+| `/mock/pods` `/mock/topology` `/mock/rbac` `/mock/privileged` | GET | Demo data — **served only in `K8S_MODE=mock`** | No |
 | `/api/network/pods`              | GET        | List all pods across namespaces         | No |
 | `/api/network/topology`          | GET        | Cluster topology graph (nodes + edges)  | No |
-| `/api/threats/falco`             | POST       | Falco webhook — ingest threat events   | 10/min per IP |
+| `/api/threats/falco`             | POST       | Falco webhook — ingest threat events (HMAC-signed) | 600/min per IP |
+| `/api/threats/history`           | GET        | Recent threat events (vault history)    | 30/min per IP |
 | `/api/threats/ws/threats`        | WebSocket  | Real-time threat stream                | No |
+| `/api/security/rbac`             | GET        | RBAC bindings audit                    | No |
+| `/api/security/privileged-pods`  | GET        | Privileged / root containers           | No |
+| `/api/ai/status`                 | GET        | AI assistant availability              | No |
+| `/api/ai/chat`                   | POST       | Chat with the cluster-aware assistant  | No |
 | `/api/cni/nodes`                 | GET        | Per-node Calico agent status           | No |
 | `/api/cni/bgp-peers`             | GET        | BGP peer list + session state          | No |
 | `/api/cni/ippools`               | GET        | IP pool definitions                    | No |
 | `/api/cni/ipam/utilization`      | GET        | Allocated vs. free IPs per pool        | No |
 | `/api/cni/policies`              | GET        | Calico NetworkPolicy + GlobalNetworkPolicy | No |
-| `/api/cni/policies/coverage`      | GET        | Per-pod policy coverage analysis (exposed vs. covered) | No |
-| `/api/cni/policy-matrix`          | GET        | Policy ↔ pod matrix: workload endpoints (per-pod selecting policies, exposure, interface status, rule digests) + policy impact (selected pods, rule-by-rule breakdown) | No |
+| `/api/cni/policies/coverage`     | GET        | Per-pod policy coverage analysis (exposed vs. covered, unsupported-selector warnings) | No |
+| `/api/cni/policy-matrix`         | GET        | Workload endpoints + policy impact (per-pod selecting policies, rule-by-rule breakdown) | No |
 | `/api/cni/topology`              | GET        | BGP mesh + overlay topology            | No |
 | `/api/cni/metrics/felix`         | GET        | Felix performance counters             | No |
-| `/api/cni/diagnostics/connectivity` | POST    | On-demand connectivity test            | No |
+| `/api/cni/diagnostics/connectivity` | POST    | On-demand connectivity test (requires `X-API-Key`) | 10/min per IP |
+| `/api/config/auth`               | POST       | Mint super-user session token (15-min TTL) | 5/min per IP |
+| `/api/config/...`                | GET        | Read-only: ippools, bgppeers, namespaces, services, configmaps, secrets, deployments, nodes, settings | No |
+| `/api/config/...`                | POST/PUT/DELETE | Write ops: CRUD on the resources above + image/scale/restart, node cordon/uncordon (requires `X-Super-User-Token`; all writes audited) | No |
+| `/api/config/audit`              | GET        | Super-user write audit log (requires `X-Super-User-Token`) | No |
 
 ## Architecture
 
@@ -235,67 +275,104 @@ VITE_API_URL=http://localhost:8000
 📊 Cluster monitoring (node/pod resources, storage) → **Grafana** (separate, via kube-prometheus-stack)
 ```
 
-All data sources have mock fallbacks — the dashboard works without a live cluster for development and evaluation.
+Mock/demo data is **opt-in** (`K8S_MODE=mock`) — without it, endpoints that
+can't reach the cluster return error envelopes, never fabricated data.
 
 ## Project Structure
 
 ```
 .
-├── docker-compose.yml           # Service orchestration (frontend + backend + redis)
+├── docker-compose.yml             # Service orchestration (frontend + backend + redis)
+├── deploy.sh                      # Kind-cluster deploy helper (applies kustomization)
+├── .github/workflows/ci.yml       # CI: backend tests, frontend tests, lint, build
 ├── backend/
-│   ├── main.py                  # FastAPI entry point
-│   ├── config.py                # Settings via Pydantic
-│   ├── dependencies.py          # Auth middleware (X-API-Key)
-│   ├── routers/
-│   │   ├── cni.py               # CNI diagnostics (Calico CRDs, IPAM, BGP, Felix)
-│   │   ├── network.py           # Pod discovery, topology
-│   │   ├── threats.py           # Falco webhook + WebSocket
-│   │   └── mock.py              # Mock fallback endpoints
-│   ├── services/
-│   │   ├── calico_service.py    # Calico CRD access (IPPool, BGP, IPAM, policies)
-│   │   ├── felix_metrics_service.py # Felix PromQL via Prometheus
-│   │   ├── network_service.py   # Pod & service discovery
-│   │   ├── prometheus_service.py # PromQL query proxy
-│   │   └── threat_service.py    # Redis pub/sub for Falco events
+│   ├── main.py                    # FastAPI entry point (+ /healthz, /readyz probe endpoints)
+│   ├── config.py                  # Settings via Pydantic (K8S_MODE, AI, secrets)
+│   ├── dependencies.py            # K8s client dependency + mock-mode fallback gate
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── connection/                # K8s API client factory (kubeconfig/token/in-cluster)
+│   │   ├── factory.py
+│   │   └── models.py
 │   ├── models/
-│   │   ├── cni_models.py        # CNI Pydantic schemas
-│   │   ├── network.py           # Pod/topology models
-│   │   ├── threat.py            # Falco event schema
-│   │   └── mock_data.py         # Shared mock data (including CNI mocks)
-│   ├── connection/              # K8s client factory (kubeconfig/token/in-cluster)
-│   └── requirements.txt
+│   │   ├── cni_models.py          # CNI Pydantic schemas
+│   │   ├── mock_data.py           # Opt-in demo data (K8S_MODE=mock only)
+│   │   ├── network.py             # Pod/topology models
+│   │   └── threat.py              # Falco event schema
+│   ├── routers/
+│   │   ├── cni.py                 # CNI diagnostics (Calico CRDs, IPAM, BGP, Felix, coverage, matrix)
+│   │   ├── network.py             # Pod discovery, topology
+│   │   ├── threats.py             # Falco webhook + WebSocket + history
+│   │   ├── security.py            # RBAC audit + privileged pods
+│   │   ├── ai.py                  # AI assistant chat + status
+│   │   ├── config.py              # Cluster management CRUD (super-user protected)
+│   │   └── mock.py                # /mock/* demo endpoints
+│   ├── services/
+│   │   ├── calico_service.py      # Calico CRD access (IPPool, BGP, IPAM, policies)
+│   │   ├── network_service.py     # Pod & service discovery
+│   │   ├── prometheus_service.py  # PromQL query proxy
+│   │   ├── felix_metrics_service.py # Felix PromQL via Prometheus
+│   │   ├── threat_service.py      # Redis pub/sub for Falco events
+│   │   ├── security_service.py    # RBAC / privileged-pod queries
+│   │   ├── ai_service.py          # LLM chat with cluster tools
+│   │   ├── config_service.py      # CRUD ops for cluster resources
+│   │   ├── auth_service.py        # Super-user session tokens
+│   │   ├── audit_service.py       # Write-op audit log
+│   │   ├── logging_service.py     # Structured logger
+│   │   └── utils.py               # Calico selector parser + policy coverage engine
+│   └── tests/                     # pytest suites (routers, services, utils, models)
 ├── frontend/
 │   ├── src/
-│   │   ├── App.tsx              # CNI Command Center tab routing
-│   │   ├── App.css              # Dark-theme styles + CNI panel styles
-│   │   ├── Topology.tsx         # Cytoscape.js topology graph
-│   │   ├── components/
-│   │   │   ├── CniHealthPanel.tsx         # Per-node Felix/BIRD status cards
-│   │   │   ├── IpamPanel.tsx              # IP pool utilization + block table
-│   │   │   ├── PolicyInspectorPanel.tsx   # Searchable policy table
-│   │   │   ├── PolicyCoveragePanel.tsx    # Per-pod policy coverage analysis
-│   │   │   ├── CniTopologyPanel.tsx       # BGP mesh + overlay topology
-│   │   │   ├── DiagnosticsPanel.tsx       # Connectivity test runner
-│   │   │   ├── DashboardPanel.tsx         # CNI Command Center overview
-│   │   │   ├── ThreatPanel.tsx            # Real-time threat stream
-│   │   │   └── shared/ (DataSourceBadge, EmptyState, Icon, Skeleton, ErrorBoundary)
-│   │   ├── types.ts             # TypeScript interfaces (+ CNI types)
-│   │   └── utils.ts             # Utility functions (ns colors, priority colors, etc.)
-│   ├── Topology.tsx             # Cytoscape.js interactive topology graph
-│   ├── Topology.css             # Topology graph styles
+│   │   ├── main.tsx               # React entry
+│   │   ├── App.tsx                # Sidebar navigation (Overview/Network/Security/Tools)
+│   │   ├── App.css / index.css    # Theme + styles
+│   │   ├── config.ts              # Runtime env config
+│   │   ├── types.ts               # TypeScript interfaces (+ CNI types)
+│   │   ├── utils.ts               # Helpers (namespace colors, priority colors, …)
+│   │   ├── Topology.tsx / Topology.css  # Cytoscape.js topology graph
+│   │   ├── context/DashboardContext.tsx # Shared data fetching + WebSocket state
+│   │   └── components/
+│   │       ├── DashboardPanel.tsx        # Overview metrics
+│   │       ├── NetworkSection.tsx        # Network section shell
+│   │       ├── CniHealthPanel.tsx        # Per-node Felix/BIRD status cards
+│   │       ├── IpamPanel.tsx             # IP pool utilization + block table
+│   │       ├── PolicyInspectorPanel.tsx  # Searchable policy table
+│   │       ├── PolicyCoveragePanel.tsx   # Per-pod coverage analysis
+│   │       ├── WorkloadEndpointsPanel.tsx # Per-pod endpoint state
+│   │       ├── PolicyImpactPanel.tsx     # Policy → selected pods + rule breakdown
+│   │       ├── CniTopologyPanel.tsx      # BGP mesh + overlay topology
+│   │       ├── DiagnosticsPanel.tsx      # Connectivity test runner
+│   │       ├── ThreatPanel.tsx           # Real-time threat stream
+│   │       ├── SecuritySection.tsx       # Security section shell
+│   │       ├── SecurityPanel.tsx         # RBAC + privileged pods
+│   │       ├── ToolsSection.tsx          # Tools section shell
+│   │       ├── ChatPanel.tsx             # AI assistant
+│   │       ├── ClusterConfigPanel.tsx    # Resource CRUD + super-user modal
+│   │       ├── SuperUserModal.tsx        # Super-user authentication
+│   │       ├── DataSourceBadge.tsx       # Live/mock/error source badge
+│   │       ├── DonutChart.tsx            # Utilization donut
+│   │       ├── Icon.tsx                  # SVG icon registry
+│   │       ├── Skeleton.tsx              # Loading placeholders
+│   │       ├── EmptyState.tsx            # Empty states
+│   │       └── ErrorBoundary.tsx
+│   ├── index.html, vite.config.ts, tsconfig*.json, eslint.config.js
 │   ├── nginx.conf               # SPA reverse proxy config
-│   ├── docker-entrypoint.sh     # Runtime env injection for nginx build
+│   ├── docker-entrypoint.sh     # Runtime env injection for nginx
 │   ├── Dockerfile               # Multi-stage build (Vite → nginx)
 │   └── package.json
-├── k8s/                          # K8s deployment manifests
-│   ├── deploy-backend.yaml      # Backend deployment + service
-│   ├── deploy-frontend.yaml     # Frontend deployment + service
-│   ├── deploy-redis.yaml        # Redis deployment + service
-│   ├── namespace.yaml
-│   ├── sa.yaml                  # ServiceAccount
-│   ├── clusterrole.yaml         # RBAC: Calico CRDs, pods, network policies
-│   ├── clusterrolebinding.yaml
-│   └── secret.yaml              # API key secret
+├── k8s/                          # Kubernetes manifests (kustomization-driven)
+│   ├── kustomization.yaml       # `kubectl apply -k k8s/`
+│   ├── namespace.yaml, sa.yaml, clusterrole.yaml, clusterrolebinding.yaml
+│   ├── deploy-backend.yaml, svc-backend.yaml
+│   ├── deploy-frontend.yaml, svc-frontend.yaml
+│   ├── deploy-redis.yaml, svc-redis.yaml, pvc-redis.yaml
+│   ├── networkpolicy-backend.yaml      # Calico NetworkPolicy CRDs
+│   ├── networkpolicy-redis.yaml
+│   ├── networkpolicy-frontend.yaml
+│   ├── networkpolicy-falco.yaml        # Apply separately (falco namespace)
+│   ├── cert-issuer.yaml                # Applied conditionally by deploy.sh
+│   ├── gen-tls-secret.sh               # Generates TLS + API-key secrets
+│   └── secret.yaml, secret-redis.yaml  # Generated locally (gitignored)
 └── README.md
 ```
 
@@ -320,7 +397,7 @@ npm run dev
 - **Adding a new CNI panel** — create a new service function in `backend/services/calico_service.py`, a route in `backend/routers/cni.py`, and a React component in `frontend/src/components/` following the existing patterns
 - **Adding a new Prometheus chart** — add a new PromQL function in `backend/services/prometheus_service.py` and a chart card in the relevant frontend component
 - **Adding a new data source** — create a new service + router in the backend following the existing patterns (K8s API client is injected via FastAPI dependency)
-- **All data sources fall back to mock data** — add mock data to `models/mock_data.py` to keep the dashboard functional without a live cluster
+- **Mock data is opt-in demo mode** — add fabricated data to `models/mock_data.py`; it is served only when the backend runs with `K8S_MODE=mock`. A real cluster never receives mock responses.
 
 ## License
 

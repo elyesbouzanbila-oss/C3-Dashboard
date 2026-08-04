@@ -49,6 +49,9 @@ export type IconName =
   | 'plus'
   | 'edit'
   | 'settings'
+  | 'git-branch'
+  | 'zap'
+  | 'radio'
 
 const ICON_PATHS: Record<IconName, { viewBox: string; paths: React.ReactNode }> = {
   'chevron-right': {
@@ -416,6 +419,31 @@ const ICON_PATHS: Record<IconName, { viewBox: string; paths: React.ReactNode }> 
       <>
         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" strokeWidth="2" />
         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" strokeWidth="2" />
+      </>
+    ),
+  },
+  'git-branch': {
+    viewBox: '0 0 24 24',
+    paths: (
+      <>
+        <circle cx="6" cy="6" r="2" strokeWidth="2" />
+        <circle cx="18" cy="18" r="2" strokeWidth="2" />
+        <path d="M6 8v8a2 2 0 0 0 2 2h4" strokeWidth="2" />
+        <path d="M18 16V8a2 2 0 0 0-2-2h-2" strokeWidth="2" />
+        <path d="M6 4v0" strokeWidth="2" />
+      </>
+    ),
+  },
+  zap: {
+    viewBox: '0 0 24 24',
+    paths: <polygon points="13 2 4 14 12 14 11 22 20 10 12 10 13 2" strokeWidth="2" />,
+  },
+  radio: {
+    viewBox: '0 0 24 24',
+    paths: (
+      <>
+        <circle cx="12" cy="12" r="6" strokeWidth="2" />
+        <circle cx="12" cy="12" r="2" strokeWidth="2" />
       </>
     ),
   },

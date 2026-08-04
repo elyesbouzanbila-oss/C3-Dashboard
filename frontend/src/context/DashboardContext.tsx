@@ -1,3 +1,5 @@
+/* eslint-disable react-refresh/only-export-components */
+
 import {
   createContext, useContext, useState, useEffect, useRef, useCallback, useMemo, type ReactNode,
 } from 'react'
@@ -338,14 +340,14 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     const res = await fetchWithRetry(`${API_BASE_URL}/api/threats/history`)
     if (res?.ok) {
       const d = await res.json()
-      const newEvents = d.events || []
+      const newEvents = (d.events || []) as ThreatEvent[]
       if (newEvents.length === 0) return
 
       setThreats(prev => {
         // If the WebSocket has already delivered live events, don't
         // overwrite them — history is only meant to seed an empty tab.
         if (prev.length > 0) return prev
-        return newEvents.map((evt: any, i: number) => ({
+        return newEvents.map((evt, i) => ({
           ...evt,
           id: `history-${i}`,
         }))
@@ -445,7 +447,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   // ── WebSocket for threats ───────────────────────────────────
   const MAX_RECONNECT_ATTEMPTS = 10
 
-  const connectWebSocket = useCallback(() => {
+  const connectWebSocket = useCallback(function connectWebSocketImpl() {
     if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
       return
     }
@@ -478,7 +480,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         if (attempt < MAX_RECONNECT_ATTEMPTS) {
           reconnectRef.current = attempt + 1
           const delay = Math.min(30000, 1000 * 2 ** attempt) + Math.random() * 500
-          setTimeout(connectWebSocket, delay)
+          window.setTimeout(() => {
+            connectWebSocketImpl()
+          }, delay)
         }
       }
     }
@@ -542,9 +546,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
   // Initial data load
   useEffect(() => {
-    fetchData()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    const timer = window.setTimeout(() => {
+      void fetchData()
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [fetchData])
 
   const value: DashboardState = {
     loading, setLoading, error, setError,

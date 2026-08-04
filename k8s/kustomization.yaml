@@ -19,6 +19,11 @@ resources:
   - secret-redis.yaml
   - networkpolicy-redis.yaml
   - networkpolicy-backend.yaml
+  - networkpolicy-frontend.yaml
+  # networkpolicy-falco.yaml is intentionally NOT listed here — it targets
+  # the falco namespace and would be rewritten into k8s-dashboard by the
+  # kustomization `namespace` field. Apply it separately:
+  #   kubectl apply -f k8s/networkpolicy-falco.yaml
   # cert-issuer.yaml is NOT listed here intentionally:
   # deploy.sh applies it *conditionally* (only when cert-manager
   # is detected). Adding it globally would break standalone

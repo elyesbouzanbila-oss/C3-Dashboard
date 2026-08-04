@@ -31,10 +31,14 @@ spec:
             - -c
           args:
             - |
+              # Persistence is disabled to avoid the Redis fork/AOF overhead that
+              # can trigger OOM kills under the small memory budget in this lab.
               exec redis-server \
                 --requirepass "$REDIS_PASSWORD" \
-                --save 60 1 \
-                --appendonly yes
+                --save "" \
+                --appendonly no \
+                --maxmemory 96mb \
+                --maxmemory-policy allkeys-lru
           env:
             - name: REDIS_PASSWORD
               valueFrom:
@@ -44,10 +48,30 @@ spec:
           volumeMounts:
             - name: redis-data
               mountPath: /data
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli --no-auth-warning ping | grep -q PONG'
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli --no-auth-warning ping | grep -q PONG'
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
           resources:
             requests:
-              memory: "64Mi"
+              memory: "128Mi"
               cpu: "50m"
             limits:
-              memory: "128Mi"
+              memory: "256Mi"
               cpu: "200m"

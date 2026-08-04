@@ -112,23 +112,21 @@ export function DiagnosticsPanel() {
     return targetServicePortOptions.length > 0 ? targetServicePortOptions : null
   }, [targetType, targetPodPortOptions, targetServicePortOptions])
 
-  // Auto-select first port when options change and current port isn't valid
-  const prevPodRef = useRef('')
-  const prevSvcRef = useRef('')
-  if (targetType === 'pod' && targetPod !== prevPodRef.current && targetPodPortOptions.length > 0) {
-    prevPodRef.current = targetPod
-    const currentValid = targetPodPortOptions.some(o => o.value === targetPort)
-    if (!currentValid) {
-      setTargetPort(targetPodPortOptions[0].value)
+  const resolvedTargetPort = useMemo(() => {
+    if (targetType === 'pod' && targetPodPortOptions.length > 0) {
+      return targetPodPortOptions.some(o => o.value === targetPort)
+        ? targetPort
+        : targetPodPortOptions[0].value
     }
-  }
-  if (targetType === 'service' && targetService !== prevSvcRef.current && targetServicePortOptions.length > 0) {
-    prevSvcRef.current = targetService
-    const currentValid = targetServicePortOptions.some(o => o.value === targetPort)
-    if (!currentValid) {
-      setTargetPort(targetServicePortOptions[0].value)
+
+    if (targetType === 'service' && targetServicePortOptions.length > 0) {
+      return targetServicePortOptions.some(o => o.value === targetPort)
+        ? targetPort
+        : targetServicePortOptions[0].value
     }
-  }
+
+    return targetPort
+  }, [targetPort, targetType, targetPodPortOptions, targetServicePortOptions])
 
   const handleRunTest = useCallback(async () => {
     if (!sourcePod) {
@@ -143,13 +141,13 @@ export function DiagnosticsPanel() {
       addLog('error', 'Please enter a target service name.')
       return
     }
-    if (!targetPort || targetPort < 1 || targetPort > 65535) {
+    if (!resolvedTargetPort || resolvedTargetPort < 1 || resolvedTargetPort > 65535) {
       addLog('error', 'Please enter a valid target port (1-65535).')
       return
     }
 
     setRunning(true)
-    addLog('info', `Initiating connectivity test from ${sourceNs}/${sourcePod} to ${targetType === 'pod' ? `${targetNs}/${targetPod}:${targetPort}` : `${targetNs}/${targetService}:${targetPort}`}...`)
+    addLog('info', `Initiating connectivity test from ${sourceNs}/${sourcePod} to ${targetType === 'pod' ? `${targetNs}/${targetPod}:${resolvedTargetPort}` : `${targetNs}/${targetService}:${resolvedTargetPort}`}...`)
 
     try {
       const params = new URLSearchParams({
@@ -157,7 +155,7 @@ export function DiagnosticsPanel() {
         source_namespace: sourceNs,
         target_namespace: targetNs,
       })
-      params.set('target_port', String(targetPort))
+      params.set('target_port', String(resolvedTargetPort))
       if (targetType === 'pod') {
         params.set('target_pod', targetPod)
       } else {
@@ -210,7 +208,7 @@ export function DiagnosticsPanel() {
       setRunning(false)
       addLog('info', 'Connectivity test completed.')
     }
-  }, [sourceNs, sourcePod, targetNs, targetPod, targetService, targetType, targetPort, addLog])
+  }, [sourceNs, sourcePod, targetNs, targetPod, targetService, targetType, targetPort, resolvedTargetPort, addLog])
 
   const handleClearLogs = useCallback(() => {
     setLogs([])

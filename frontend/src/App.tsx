@@ -26,7 +26,6 @@ const SECTIONS: SectionDef[] = [
 function AppContent() {
   const {
     loading, error, setError,
-    cniNodes, bgpPeers,
     activeTab,
     wsConnected,
     exportData, connectWebSocket, setActiveTab, silentRefresh, refreshView,
@@ -80,12 +79,7 @@ function AppContent() {
     if (activeTab === 'threats') {
       connectWebSocket()
     }
-  }, [activeTab])
-
-  // Close mobile menu when section changes
-  useEffect(() => {
-    setMobileMenuOpen(false)
-  }, [activeTab])
+  }, [activeTab, connectWebSocket, silentRefresh])
 
   // Determine active section from active tab
   const activeSection = useMemo(() => {
@@ -104,28 +98,24 @@ function AppContent() {
       'security': 'threats',
       'tools': 'diagnostics',
     }
+    setMobileMenuOpen(false)
     setActiveTab(defaults[sectionId] || 'dashboard')
   }, [setActiveTab])
 
   const handleSidebarKeyDown = useCallback((e: React.KeyboardEvent) => {
     const currentIdx = SECTIONS.findIndex(s => s.id === activeSection)
-    let nextIdx: number | null = null
 
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault()
-        nextIdx = (currentIdx + 1) % SECTIONS.length
+        handleSectionClick(SECTIONS[(currentIdx + 1) % SECTIONS.length].id)
         break
       case 'ArrowUp':
         e.preventDefault()
-        nextIdx = (currentIdx - 1 + SECTIONS.length) % SECTIONS.length
+        handleSectionClick(SECTIONS[(currentIdx - 1 + SECTIONS.length) % SECTIONS.length].id)
         break
       default:
         return
-    }
-
-    if (nextIdx !== null) {
-      handleSectionClick(SECTIONS[nextIdx].id)
     }
   }, [activeSection, handleSectionClick])
 

@@ -1,14 +1,19 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useDashboard } from '../context/DashboardContext'
-import { Icon } from './Icon'
+import { Icon, type IconName } from './Icon'
 import { EmptyState } from './EmptyState'
 import { SuperUserModal } from './SuperUserModal'
 import type {
-  IPPool, BGPPeer, K8sNamespace, K8sService, K8sConfigMap,
+  K8sNamespace, K8sService, K8sConfigMap,
   K8sSecret, K8sDeployment, K8sNode, ConfigSettings,
 } from '../types'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || ''
+
+// Values stored in the shared modal form: strings, numbers, booleans, and the
+// key-array passed in from resource rows. Kept explicit (no `any`) so the
+// form can be typed without opting out of the type checker.
+type FormValue = string | number | boolean | string[] | null | undefined
 
 // ═══════════════════════════════════════════════════════════════════
 //  Super User auth helpers
@@ -47,7 +52,7 @@ async function extractError(res: Response): Promise<string> {
     const data = JSON.parse(txt)
     // FastAPI 422: {detail: [{loc: [...], msg, type}]}
     if (data?.detail && Array.isArray(data.detail)) {
-      const parts = (data.detail as any[])
+      const parts = (data.detail as Array<{ loc?: unknown[]; msg?: string }>)
         .map(d => {
           const field = Array.isArray(d.loc) ? d.loc.slice(1).join('.') : 'field'
           return `${field}: ${d.msg}`
@@ -165,7 +170,7 @@ const MODE_COLORS: Record<string, string> = {
 
 interface SectionProps {
   title: string
-  icon: string
+  icon: IconName
   iconColor: string
   expanded: boolean
   onToggle: () => void
@@ -179,7 +184,7 @@ function ConfigSection({ title, icon, iconColor, expanded, onToggle, addLabel, o
     <div className="config-section-card">
       <button className="dashboard-card-header-btn config-section-toggle" onClick={onToggle} aria-expanded={expanded}>
         <div className="dashboard-card-header-left">
-          <Icon name={icon as any} size={16} style={{ color: iconColor }} />
+          <Icon name={icon} size={16} style={{ color: iconColor }} />
           <span>{title}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -213,6 +218,8 @@ export function ClusterConfigPanel() {
 
   const superUserSessionDuration = 15 * 60 * 1000 // 15 minutes
 
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
+
   const handleAuthenticated = useCallback((token: string) => {
     _superUserToken = token
     _superUserSession = true
@@ -225,7 +232,13 @@ export function ClusterConfigPanel() {
       _superUserSession = false
       setSuperUserActive(false)
     }, superUserSessionDuration)
-  }, [])
+
+    if (pendingAction) {
+      const action = pendingAction
+      setPendingAction(null)
+      action()
+    }
+  }, [pendingAction, superUserSessionDuration])
 
   const handleAuthCancel = useCallback(() => {
     setShowAuth(false)
@@ -240,17 +253,6 @@ export function ClusterConfigPanel() {
       setShowAuth(true)
     }
   }, [])
-
-  // This ref holds the pending action to run after auth
-  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
-
-  // Run pending action after auth succeeds
-  useEffect(() => {
-    if (superUserActive && pendingAction) {
-      pendingAction()
-      setPendingAction(null)
-    }
-  }, [superUserActive, pendingAction])
 
   // Cleanup auth timer on unmount
   useEffect(() => {
@@ -300,48 +302,71 @@ export function ClusterConfigPanel() {
         const r = await fetch(`${API_BASE_URL}/api/config/settings`)
         const d = await r.json()
         if (d.data) setSettings(d.data)
-      } catch {}
+      } catch { /* ignore */ }
     }
     setLoadingData(false)
   }, [])
 
   // Reload on mount and whenever the topbar refresh button is pressed
-  useEffect(() => { loadAll() }, [loadAll, refreshSignal])
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadAll()
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [loadAll, refreshSignal])
 
   // ── Modal state ───────────────────────────────────────────────
-  const [modal, setModal] = useState<{ type: string; data?: any; editing?: boolean } | null>(null)
-  const [form, setForm] = useState<Record<string, any>>({})
+  const [modal, setModal] = useState<{ type: string; data?: object; editing?: boolean } | null>(null)
+  const [form, setForm] = useState<Record<string, FormValue>>({})
   const [saving, setSaving] = useState(false)
+
+  // Read a form field as text (booleans / arrays fall back to '').
+  const s = (key: string): string => {
+    const v = form[key]
+    return typeof v === 'string' ? v : typeof v === 'number' ? String(v) : ''
+  }
+  // Read a numeric form field (non-numbers fall back to the default).
+  const num = (key: string, fallback: number): number => {
+    const v = form[key]
+    return typeof v === 'number' ? v : fallback
+  }
   const [modalError, setModalError] = useState<string | null>(null)
 
   const closeModal = useCallback(() => { setModal(null); setModalError(null); setForm({}) }, [])
 
-  const openModal = useCallback((type: string, data?: any) => {
+  const openModal = useCallback((type: string, data?: object) => {
+    // Coerce an unknown API value into a string form field ('' fallback).
+    const ds = (v: unknown, fb = ''): string => {
+      if (typeof v === 'string') return v
+      if (typeof v === 'number') return String(v)
+      return fb
+    }
+    const rec = data as Record<string, unknown> | undefined
     setModal({ type, data, editing: !!data })
     setModalError(null)
 
     if (type === 'ippool') {
       setForm({
-        name: data?.name || '',
-        cidr: data?.cidr || '',
-        mode: data?.mode || 'vxlan',
-        nat_outgoing: data?.nat_outgoing ?? true,
-        disabled: data?.disabled ?? false,
-        node_selector: data?.node_selector || 'all()',
+        name: ds(rec?.name),
+        cidr: ds(rec?.cidr),
+        mode: ds(rec?.mode, 'vxlan'),
+        nat_outgoing: rec?.nat_outgoing !== false,
+        disabled: rec?.disabled === true,
+        node_selector: ds(rec?.node_selector, 'all()'),
       })
     } else if (type === 'bgppeer') {
       setForm({
-        name: data?.name || '',
-        peer_ip: data?.peer_ip || '',
-        peer_as_number: data?.peer_as_number ?? 64512,
-        node_as_number: data?.node_as_number ?? '',
-        node: data?.node || '',
+        name: ds(rec?.name),
+        peer_ip: ds(rec?.peer_ip),
+        peer_as_number: Number(rec?.peer_as_number) || 64512,
+        node_as_number: ds(rec?.node_as_number),
+        node: ds(rec?.node),
       })
     } else if (type === 'configmap') {
-      setForm({ name: data?.name || '', namespace: data?.namespace || 'default', dataLines: '' })
-      if (data) {
+      setForm({ name: ds(rec?.name), namespace: ds(rec?.namespace, 'default'), dataLines: '' })
+      if (rec) {
         // Fetch full detail (with values) for editing
-        fetch(`${API_BASE_URL}/api/config/configmaps/${data.namespace}/${data.name}`)
+        fetch(`${API_BASE_URL}/api/config/configmaps/${rec.namespace}/${rec.name}`)
           .then(r => r.json())
           .then(d => {
             const obj = d?.data?.data || {}
@@ -353,9 +378,9 @@ export function ClusterConfigPanel() {
           .catch(() => {})
       }
     } else if (type === 'secret') {
-      setForm({ name: data?.name || '', namespace: data?.namespace || 'default', secretType: data?.type || 'Opaque', dataLines: '' })
-      if (data) {
-        fetch(`${API_BASE_URL}/api/config/secrets/${data.namespace}/${data.name}`)
+      setForm({ name: ds(rec?.name), namespace: ds(rec?.namespace, 'default'), secretType: ds(rec?.type, 'Opaque'), dataLines: '' })
+      if (rec) {
+        fetch(`${API_BASE_URL}/api/config/secrets/${rec.namespace}/${rec.name}`)
           .then(r => r.json())
           .then(d => {
             const obj = d?.data?.data || {}
@@ -369,28 +394,36 @@ export function ClusterConfigPanel() {
       }
     } else if (type === 'deployment') {
       setForm({
-        name: data?.name || '',
-        namespace: data?.namespace || 'default',
-        replicas: data?.replicas ?? 1,
-        image: data?.image || '',
+        name: ds(rec?.name),
+        namespace: ds(rec?.namespace, 'default'),
+        replicas: Number(rec?.replicas) || 1,
+        image: ds(rec?.image),
       })
     }
   }, [])
 
   // ── Write actions wrapped in auth ─────────────────────────────
-  const withAuth = useCallback((fn: () => Promise<string | null>, onSuccess: () => void) => {
-    if (!_superUserSession) {
-      setPendingAction(() => () => withAuth(fn, onSuccess))
-      setShowAuth(true)
-      return
-    }
+  const executeWithAuth = useCallback((fn: () => Promise<string | null>, onSuccess?: () => void) => {
     setSaving(true)
     setModalError(null)
     fn().then(err => {
       if (err) setModalError(err)
-      else { closeModal(); loadAll() }
+      else {
+        closeModal()
+        loadAll()
+        onSuccess?.()
+      }
     }).catch(e => setModalError(e.message || 'Error')).finally(() => setSaving(false))
   }, [closeModal, loadAll])
+
+  const withAuth = useCallback((fn: () => Promise<string | null>, onSuccess?: () => void) => {
+    if (!_superUserSession) {
+      setPendingAction(() => () => executeWithAuth(fn, onSuccess))
+      setShowAuth(true)
+      return
+    }
+    executeWithAuth(fn, onSuccess)
+  }, [executeWithAuth])
 
   // ── Namespace form state ──────────────────────────────────────
   const [nsName, setNsName] = useState('')
@@ -399,12 +432,12 @@ export function ClusterConfigPanel() {
 
   const renderModal = () => {
     if (!modal) return null
-    const { type, data, editing } = modal
+    const { type, editing } = modal
 
     const close = () => { closeModal(); if (type === 'namespace') setNsName('') }
 
     const renderForm = () => {
-      const upd = (patch: Record<string, any>) => setForm(f => ({ ...f, ...patch }))
+      const upd = (patch: Record<string, FormValue>) => setForm(f => ({ ...f, ...patch }))
 
       switch (type) {
         case 'namespace': return (
@@ -417,15 +450,15 @@ export function ClusterConfigPanel() {
           <>
             <div className="config-form-group">
               <label className="config-form-label">Name</label>
-              <input className="config-form-input" value={form.name || ''} onChange={e => upd({ name: e.target.value })} placeholder="e.g. pool-prod" disabled={!!editing} autoFocus />
+              <input className="config-form-input" value={s('name')} onChange={e => upd({ name: e.target.value })} placeholder="e.g. pool-prod" disabled={!!editing} autoFocus />
             </div>
             <div className="config-form-group">
               <label className="config-form-label">CIDR</label>
-              <input className="config-form-input" value={form.cidr || ''} onChange={e => upd({ cidr: e.target.value })} placeholder="e.g. 10.244.0.0/16" disabled={!!editing} />
+              <input className="config-form-input" value={s('cidr')} onChange={e => upd({ cidr: e.target.value })} placeholder="e.g. 10.244.0.0/16" disabled={!!editing} />
             </div>
             <div className="config-form-group">
               <label className="config-form-label">Encapsulation Mode</label>
-              <select className="config-form-input" value={form.mode || 'vxlan'} onChange={e => upd({ mode: e.target.value })}>
+              <select className="config-form-input" value={s('mode') || 'vxlan'} onChange={e => upd({ mode: e.target.value })}>
                 <option value="vxlan">VXLAN</option>
                 <option value="ipip">IPIP</option>
                 <option value="none">None (BGP only)</option>
@@ -443,7 +476,7 @@ export function ClusterConfigPanel() {
             </div>
             <div className="config-form-group">
               <label className="config-form-label">Node Selector</label>
-              <input className="config-form-input" value={form.node_selector || 'all()'} onChange={e => upd({ node_selector: e.target.value })} placeholder="all()" />
+              <input className="config-form-input" value={s('node_selector') || 'all()'} onChange={e => upd({ node_selector: e.target.value })} placeholder="all()" />
             </div>
           </>
         )
@@ -451,24 +484,24 @@ export function ClusterConfigPanel() {
           <>
             <div className="config-form-group">
               <label className="config-form-label">Name</label>
-              <input className="config-form-input" value={form.name || ''} onChange={e => upd({ name: e.target.value })} placeholder="e.g. peer-rack-1" disabled={!!editing} autoFocus />
+              <input className="config-form-input" value={s('name')} onChange={e => upd({ name: e.target.value })} placeholder="e.g. peer-rack-1" disabled={!!editing} autoFocus />
             </div>
             <div className="config-form-group">
               <label className="config-form-label">Peer IP</label>
-              <input className="config-form-input" value={form.peer_ip || ''} onChange={e => upd({ peer_ip: e.target.value })} placeholder="e.g. 192.168.1.254" />
+              <input className="config-form-input" value={s('peer_ip')} onChange={e => upd({ peer_ip: e.target.value })} placeholder="e.g. 192.168.1.254" />
             </div>
             <div className="config-form-group">
               <label className="config-form-label">Peer AS Number</label>
-              <input className="config-form-input" type="number" value={form.peer_as_number ?? 64512} onChange={e => upd({ peer_as_number: Number(e.target.value) })} />
+              <input className="config-form-input" type="number" value={num('peer_as_number', 64512)} onChange={e => upd({ peer_as_number: Number(e.target.value) })} />
             </div>
             <div className="config-form-group">
               <label className="config-form-label">Node AS Number (optional)</label>
-              <input className="config-form-input" type="number" value={form.node_as_number ?? ''} onChange={e => upd({ node_as_number: e.target.value })}
+              <input className="config-form-input" type="number" value={s('node_as_number')} onChange={e => upd({ node_as_number: e.target.value })}
                 placeholder={form.node_as_number ? String(form.node_as_number) : 'Inherit from node'} />
             </div>
             <div className="config-form-group">
               <label className="config-form-label">Node (optional)</label>
-              <input className="config-form-input" value={form.node || ''} onChange={e => upd({ node: e.target.value })} placeholder="e.g. worker-1 (blank = global)" />
+              <input className="config-form-input" value={s('node')} onChange={e => upd({ node: e.target.value })} placeholder="e.g. worker-1 (blank = global)" />
             </div>
           </>
         )
@@ -477,17 +510,17 @@ export function ClusterConfigPanel() {
             <div className="config-form-row">
               <div className="config-form-group config-form-grow">
                 <label className="config-form-label">Name</label>
-                <input className="config-form-input" value={form.name || ''} onChange={e => upd({ name: e.target.value })} placeholder="e.g. app-config" disabled={!!editing} autoFocus />
+                <input className="config-form-input" value={s('name')} onChange={e => upd({ name: e.target.value })} placeholder="e.g. app-config" disabled={!!editing} autoFocus />
               </div>
               <div className="config-form-group config-form-grow">
                 <label className="config-form-label">Namespace</label>
-                <input className="config-form-input" list="config-ns-list" value={form.namespace || 'default'} onChange={e => upd({ namespace: e.target.value })} disabled={!!editing} />
+                <input className="config-form-input" list="config-ns-list" value={s('namespace') || 'default'} onChange={e => upd({ namespace: e.target.value })} disabled={!!editing} />
               </div>
             </div>
             <datalist id="config-ns-list">{namespaceNames.map(n => <option key={n} value={n} />)}</datalist>
             <div className="config-form-group">
               <label className="config-form-label">Data (one <code>key=value</code> per line)</label>
-              <textarea className="config-form-input config-form-textarea" rows={10} value={form.dataLines || ''} onChange={e => upd({ dataLines: e.target.value })}
+              <textarea className="config-form-input config-form-textarea" rows={10} value={s('dataLines')} onChange={e => upd({ dataLines: e.target.value })}
                 placeholder={'KEY=value\nfeatureFlag=true\nmaxRetries=3'} spellCheck={false} />
             </div>
           </>
@@ -497,17 +530,17 @@ export function ClusterConfigPanel() {
             <div className="config-form-row">
               <div className="config-form-group config-form-grow">
                 <label className="config-form-label">Name</label>
-                <input className="config-form-input" value={form.name || ''} onChange={e => upd({ name: e.target.value })} placeholder="e.g. db-credentials" disabled={!!editing} autoFocus />
+                <input className="config-form-input" value={s('name')} onChange={e => upd({ name: e.target.value })} placeholder="e.g. db-credentials" disabled={!!editing} autoFocus />
               </div>
               <div className="config-form-group config-form-grow">
                 <label className="config-form-label">Namespace</label>
-                <input className="config-form-input" list="config-ns-list" value={form.namespace || 'default'} onChange={e => upd({ namespace: e.target.value })} disabled={!!editing} />
+                <input className="config-form-input" list="config-ns-list" value={s('namespace') || 'default'} onChange={e => upd({ namespace: e.target.value })} disabled={!!editing} />
               </div>
             </div>
             <datalist id="config-ns-list">{namespaceNames.map(n => <option key={n} value={n} />)}</datalist>
             <div className="config-form-group">
               <label className="config-form-label">Type</label>
-              <select className="config-form-input" value={form.secretType || 'Opaque'} onChange={e => upd({ secretType: e.target.value })}>
+              <select className="config-form-input" value={s('secretType') || 'Opaque'} onChange={e => upd({ secretType: e.target.value })}>
                 <option value="Opaque">Opaque</option>
                 <option value="kubernetes.io/tls">TLS</option>
                 <option value="kubernetes.io/basic-auth">Basic Auth</option>
@@ -517,7 +550,7 @@ export function ClusterConfigPanel() {
             </div>
             <div className="config-form-group">
               <label className="config-form-label">Data (one <code>key=value</code> per line, base64-encoded automatically)</label>
-              <textarea className="config-form-input config-form-textarea" rows={8} value={form.dataLines || ''} onChange={e => upd({ dataLines: e.target.value })}
+              <textarea className="config-form-input config-form-textarea" rows={8} value={s('dataLines')} onChange={e => upd({ dataLines: e.target.value })}
                 placeholder={'username=admin\npassword=s3cret'} spellCheck={false} />
               <div className="config-form-hint" style={{ marginTop: 8 }}>
                 Values are base64-encoded on save. For multi-line values (e.g. PEM certificates), paste the value in a single line — the encoder handles it.
@@ -530,22 +563,22 @@ export function ClusterConfigPanel() {
             <div className="config-form-row">
               <div className="config-form-group config-form-grow">
                 <label className="config-form-label">Name</label>
-                <input className="config-form-input" value={form.name || ''} onChange={e => upd({ name: e.target.value })} placeholder="e.g. api-server" disabled={!!editing} autoFocus />
+                <input className="config-form-input" value={s('name')} onChange={e => upd({ name: e.target.value })} placeholder="e.g. api-server" disabled={!!editing} autoFocus />
               </div>
               <div className="config-form-group config-form-grow">
                 <label className="config-form-label">Namespace</label>
-                <input className="config-form-input" list="config-ns-list" value={form.namespace || 'default'} onChange={e => upd({ namespace: e.target.value })} disabled={!!editing} />
+                <input className="config-form-input" list="config-ns-list" value={s('namespace') || 'default'} onChange={e => upd({ namespace: e.target.value })} disabled={!!editing} />
               </div>
             </div>
             <datalist id="config-ns-list">{namespaceNames.map(n => <option key={n} value={n} />)}</datalist>
             <div className="config-form-row">
               <div className="config-form-group config-form-grow">
                 <label className="config-form-label">Image</label>
-                <input className="config-form-input" value={form.image || ''} onChange={e => upd({ image: e.target.value })} placeholder="e.g. nginx:1.27" />
+                <input className="config-form-input" value={s('image')} onChange={e => upd({ image: e.target.value })} placeholder="e.g. nginx:1.27" />
               </div>
               <div className="config-form-group config-form-grow">
                 <label className="config-form-label">Replicas</label>
-                <input className="config-form-input" type="number" min={0} value={form.replicas ?? 1} onChange={e => upd({ replicas: Number(e.target.value) })} disabled={!!editing} />
+                <input className="config-form-input" type="number" min={0} value={num('replicas', 1)} onChange={e => upd({ replicas: Number(e.target.value) })} disabled={!!editing} />
               </div>
             </div>
             {editing && (
@@ -560,7 +593,7 @@ export function ClusterConfigPanel() {
     }
 
     const handleSave = () => {
-      let path = '', method = '', body: any = {}
+      let path = '', method = '', body: Record<string, unknown> = {}
       switch (type) {
         case 'namespace': {
           const err = validateName(nsName)
@@ -569,62 +602,62 @@ export function ClusterConfigPanel() {
           break
         }
         case 'ippool': {
-          const nameErr = validateName(form.name)
+          const nameErr = validateName(s('name'))
           if (nameErr) { setModalError(nameErr); return }
           if (!editing) {
-            const cidrErr = validateCIDR(form.cidr)
+            const cidrErr = validateCIDR(s('cidr'))
             if (cidrErr) { setModalError(cidrErr); return }
           }
           if (editing) {
-            path = `/api/config/ippools/${encodeURIComponent(form.name)}`; method = 'PUT'
+            path = `/api/config/ippools/${encodeURIComponent(s('name'))}`; method = 'PUT'
             body = { nat_outgoing: !!form.nat_outgoing, disabled: !!form.disabled, mode: form.mode, node_selector: form.node_selector }
           } else {
             path = '/api/config/ippools'; method = 'POST'
-            body = { name: form.name.trim(), cidr: form.cidr.trim(), mode: form.mode, nat_outgoing: !!form.nat_outgoing, disabled: !!form.disabled, node_selector: form.node_selector }
+            body = { name: s('name').trim(), cidr: s('cidr').trim(), mode: form.mode, nat_outgoing: !!form.nat_outgoing, disabled: !!form.disabled, node_selector: form.node_selector }
           }
           break
         }
         case 'bgppeer': {
-          const nameErr = validateName(form.name)
+          const nameErr = validateName(s('name'))
           if (nameErr) { setModalError(nameErr); return }
-          const ipErr = validateIP(form.peer_ip)
+          const ipErr = validateIP(s('peer_ip'))
           if (ipErr) { setModalError(ipErr); return }
-          const bodyPartial: any = {
-            peer_ip: form.peer_ip.trim(),
+          const bodyPartial: Record<string, unknown> = {
+            peer_ip: s('peer_ip').trim(),
             peer_as_number: Number(form.peer_as_number) || 64512,
           }
           if (form.node_as_number !== undefined && form.node_as_number !== null && form.node_as_number !== '') bodyPartial.node_as_number = Number(form.node_as_number)
-          if (form.node?.trim()) bodyPartial.node = form.node.trim()
+          if (s('node').trim()) bodyPartial.node = s('node').trim()
           if (editing) {
-            path = `/api/config/bgppeers/${encodeURIComponent(form.name)}`; method = 'PUT'
+            path = `/api/config/bgppeers/${encodeURIComponent(s('name'))}`; method = 'PUT'
           } else {
             path = '/api/config/bgppeers'; method = 'POST'
-            bodyPartial.name = form.name.trim()
+            bodyPartial.name = s('name').trim()
           }
           body = bodyPartial
           break
         }
         case 'configmap': {
           if (!editing) {
-            const nameErr = validateName(form.name)
+            const nameErr = validateName(s('name'))
             if (nameErr) { setModalError(nameErr); return }
           }
-          const { data: kv, error } = parseDataLines(form.dataLines || '')
+          const { data: kv, error } = parseDataLines(s('dataLines'))
           if (error) { setModalError(error); return }
           if (editing) {
             path = `/api/config/configmaps/${form.namespace}/${form.name}`; method = 'PUT'; body = { data: kv }
           } else {
             path = '/api/config/configmaps'; method = 'POST'
-            body = { name: form.name.trim(), namespace: form.namespace?.trim() || 'default', data: kv }
+            body = { name: s('name').trim(), namespace: s('namespace').trim() || 'default', data: kv }
           }
           break
         }
         case 'secret': {
           if (!editing) {
-            const nameErr = validateName(form.name)
+            const nameErr = validateName(s('name'))
             if (nameErr) { setModalError(nameErr); return }
           }
-          const { data: kv, error } = parseDataLines(form.dataLines || '')
+          const { data: kv, error } = parseDataLines(s('dataLines'))
           if (error) { setModalError(error); return }
           const encoded = Object.fromEntries(Object.entries(kv).map(([k, v]) => [k, encodeB64(v)]))
           if (editing) {
@@ -632,23 +665,23 @@ export function ClusterConfigPanel() {
             body = { type: form.secretType || 'Opaque', data: encoded }
           } else {
             path = '/api/config/secrets'; method = 'POST'
-            body = { name: form.name.trim(), namespace: form.namespace?.trim() || 'default', type: form.secretType || 'Opaque', data: encoded }
+            body = { name: s('name').trim(), namespace: s('namespace').trim() || 'default', type: form.secretType || 'Opaque', data: encoded }
           }
           break
         }
         case 'deployment': {
           if (!editing) {
-            const nameErr = validateName(form.name)
+            const nameErr = validateName(s('name'))
             if (nameErr) { setModalError(nameErr); return }
           }
-          if (!form.image?.trim()) { setModalError('Image is required'); return }
+          if (!s('image').trim()) { setModalError('Image is required'); return }
           if (editing) {
-            path = `/api/config/deployments/${form.namespace}/${form.name}/image`; method = 'PUT'; body = { image: form.image.trim() }
+            path = `/api/config/deployments/${form.namespace}/${form.name}/image`; method = 'PUT'; body = { image: s('image').trim() }
           } else {
             path = '/api/config/deployments'; method = 'POST'
             const replicasRaw = String(form.replicas ?? '').trim()
             const parsedReplicas = Number(replicasRaw)
-            body = { name: form.name.trim(), namespace: form.namespace?.trim() || 'default', replicas: replicasRaw !== '' && Number.isFinite(parsedReplicas) ? parsedReplicas : 1, image: form.image.trim() }
+            body = { name: s('name').trim(), namespace: s('namespace').trim() || 'default', replicas: replicasRaw !== '' && Number.isFinite(parsedReplicas) ? parsedReplicas : 1, image: s('image').trim() }
           }
           break
         }
