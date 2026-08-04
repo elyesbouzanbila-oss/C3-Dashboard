@@ -103,6 +103,26 @@ kubectl get svc -n k8s-dashboard dashboard-frontend
 > internally through the nginx reverse proxy on the frontend pod. External calls to
 > the backend API must go through the frontend's NodePort.
 
+### Network Policies & Coverage
+
+The `k8s/networkpolicy-*.yaml` files ship **Calico NetworkPolicy CRDs** so that
+in-cluster enforcement *and* the dashboard's Policy Coverage / Endpoints / Impact
+views (which read Calico CRDs only) see the same policies.
+
+```bash
+# Dashboard policies (namespace k8s-dashboard)
+kubectl apply -f k8s/networkpolicy-backend.yaml -f k8s/networkpolicy-redis.yaml -f k8s/networkpolicy-frontend.yaml -n k8s-dashboard
+# Falco stack policies (namespace falco) — excluded from kustomization on purpose
+kubectl apply -f k8s/networkpolicy-falco.yaml
+```
+
+> **⚠ API version matters.** These policies declare `apiVersion: crd.projectcalico.org/v1`.
+> Clusters installed via the **Tigera operator (Calico v3.27+)** serve that group only;
+> the older `projectcalico.org/v3` group is not registered, so `kubectl apply` fails with
+> `no matches for kind "NetworkPolicy"`. Older Calico installs (manifest-based) serve
+> `projectcalico.org/v3`. Check your cluster with `kubectl api-resources | grep -i calico`
+> and match the served version.
+
 ### Building Container Images
 
 If deploying to a local cluster (kind, minikube, etc.), build the images first so they're
