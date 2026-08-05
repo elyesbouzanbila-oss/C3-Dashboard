@@ -26,12 +26,17 @@ export function SuperUserModal({ onAuthenticated, onCancel }: SuperUserModalProp
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password }),
       })
-      const data = await res.json()
-      if (data.authenticated) {
+      // Bad credentials come back as HTTP 401 ({detail: "Invalid password"});
+      // success (or no-password mode) is 200 with {authenticated: true}.
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.authenticated) {
         // No-password mode returns authenticated without a token.
         onAuthenticated(data.token || '')
+      } else if (res.status === 429) {
+        // Rate-limited (5/min per IP) — don't conflate throttling with a wrong password.
+        setError('Too many attempts — wait a minute and try again')
       } else {
-        setError(data.message || 'Invalid password')
+        setError(data.message || data.detail || data.error || 'Invalid password')
       }
     } catch {
       setError('Failed to connect to backend')

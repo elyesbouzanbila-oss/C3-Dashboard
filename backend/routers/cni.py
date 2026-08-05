@@ -8,10 +8,9 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, Request
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from config import Settings
-from dependencies import get_k8s_client, get_settings_dep, fallback_response
+from dependencies import get_k8s_client, get_settings_dep, fallback_response, real_client_ip
 from models.mock_data import (
     MOCK_BGP_PEERS,
     MOCK_CALICO_NODES,
@@ -37,8 +36,9 @@ _DIAG_NS_WHITELIST = frozenset(
 )
 
 # Rate limiter for the diagnostics POST endpoint: 10 requests/minute per IP
-# to prevent creating a flood of ephemeral pods.
-diag_limiter = Limiter(key_func=get_remote_address)
+# to prevent creating a flood of ephemeral pods. Keyed on the real client IP
+# (not X-Forwarded-For) so the counter cannot be reset by header rotation.
+diag_limiter = Limiter(key_func=real_client_ip)
 
 
 # RFC 1123 subdomain: lowercase alphanumeric, hyphens, max 253 chars, start/end with alphanumeric

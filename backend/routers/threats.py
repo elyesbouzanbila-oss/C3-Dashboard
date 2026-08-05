@@ -6,9 +6,8 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 
-from dependencies import get_settings_dep
+from dependencies import get_settings_dep, real_client_ip
 from config import Settings
 from models.threat import FalcoEvent
 from services.threat_service import ThreatService
@@ -73,7 +72,7 @@ router = APIRouter()
 # Falco fires many events (K8s API connections per node, container spawns, etc.)
 # so the limit needs to be generous to avoid dropping legitimate threat alerts.
 # The NetworkPolicy and HMAC signature provide the real security.
-falco_limiter = Limiter(key_func=get_remote_address)
+falco_limiter = Limiter(key_func=real_client_ip)
 
 
 @router.post("/falco")
@@ -165,7 +164,7 @@ async def falco_webhook(
     return {"status": "ok", "events_processed": count, "events_filtered": filtered}
 
 
-history_limiter = Limiter(key_func=get_remote_address)
+history_limiter = Limiter(key_func=real_client_ip)
 
 
 @router.get("/history")
@@ -185,7 +184,14 @@ async def get_threat_history(
     channel so the frontend can parse them identically.
     """
     service = ThreatService(settings)
-    events = await service.get_recent_events(limit=50)
+    try:
+        events = await service.get_recent_events(limit=50)
+    except Exception as exc:
+        # Redis (the threat vault) is down — degrade to an empty feed instead
+        # of a 500, matching the app's graceful-degradation design. The threat
+        # panel shows an empty state; real-time streaming is also affected.
+        logger.warning(f"Threat history unavailable (Redis): {exc}")
+        events = []
     return {"status": "success", "events": events}
 
 

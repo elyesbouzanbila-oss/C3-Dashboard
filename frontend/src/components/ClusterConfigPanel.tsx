@@ -380,8 +380,11 @@ export function ClusterConfigPanel() {
     } else if (type === 'secret') {
       setForm({ name: ds(rec?.name), namespace: ds(rec?.namespace, 'default'), secretType: ds(rec?.type, 'Opaque'), dataLines: '' })
       if (rec) {
-        fetch(`${API_BASE_URL}/api/config/secrets/${rec.namespace}/${rec.name}`)
-          .then(r => r.json())
+        // Reading secret VALUES is super-user-gated on the backend, so the
+        // detail fetch must carry the session token (present because the
+        // Edit button runs through requireAuth).
+        fetch(`${API_BASE_URL}/api/config/secrets/${rec.namespace}/${rec.name}`, { headers: getAuthHeaders() })
+          .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
           .then(d => {
             const obj = d?.data?.data || {}
             setForm(f => ({
@@ -390,7 +393,7 @@ export function ClusterConfigPanel() {
               dataLines: Object.entries(obj).map(([k, v]) => `${k}=${decodeB64(String(v))}`).join('\n'),
             }))
           })
-          .catch(() => {})
+          .catch(() => setModalError('Could not load secret values — session expired or backend unavailable'))
       }
     } else if (type === 'deployment') {
       setForm({
@@ -975,7 +978,7 @@ export function ClusterConfigPanel() {
                   <td className="cell-mono" style={{fontSize:11}}>{(s.keys||[]).join(', ') || <span style={{color:'var(--text-tertiary)'}}>—</span>}</td>
                   <td>
                     <div style={{display:'flex',gap:4}}>
-                      <button className="refresh-btn" onClick={() => openModal('secret', s)} style={{ padding:'4px 8px' }} title="Edit Secret"><Icon name="edit" size={14} /></button>
+                      <button className="refresh-btn" onClick={() => requireAuth(() => openModal('secret', s))} style={{ padding:'4px 8px' }} title="Edit Secret (requires unlock)"><Icon name="edit" size={14} /></button>
                       <button className="refresh-btn" onClick={() => requireAuth(async () => {
                         const err = await deleteResource(`/api/config/secrets/${s.namespace}/${s.name}`)
                         if (err) alert(err); else loadAll()

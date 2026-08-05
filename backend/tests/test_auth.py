@@ -66,17 +66,28 @@ def _fake_redis():
 
 
 class TestAuthEndpoint:
-    def test_wrong_password_no_token(self):
+    # Each request uses a unique X-Real-IP so the auth limiter (5/min) buckets
+    # never collide with test_routers.py's auth requests in the shared
+    # in-memory storage within the same minute.
+
+    def test_wrong_password_returns_401(self):
+        """Bad credentials fail with a real HTTP 401 (not a 200-with-body)."""
         with patch("config.get_settings", return_value=_settings_with_password()):
-            resp = client.post("/api/config/auth", json={"password": "nope"})
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["authenticated"] is False
-        assert body.get("token") is None
+            resp = client.post(
+                "/api/config/auth",
+                json={"password": "nope"},
+                headers={"X-Real-IP": "198.51.100.21"},
+            )
+        assert resp.status_code == 401, f"Expected 401, got {resp.status_code}: {resp.text[:200]}"
+        assert "Invalid password" in resp.json().get("detail", "")
 
     def test_correct_password_mints_token(self):
         with patch("config.get_settings", return_value=_settings_with_password()):
-            resp = client.post("/api/config/auth", json={"password": "s3cret-password"})
+            resp = client.post(
+                "/api/config/auth",
+                json={"password": "s3cret-password"},
+                headers={"X-Real-IP": "198.51.100.22"},
+            )
         assert resp.status_code == 200
         body = resp.json()
         assert body["authenticated"] is True
@@ -85,7 +96,11 @@ class TestAuthEndpoint:
 
     def test_no_password_mode_authenticates_without_token(self):
         with patch("config.get_settings", return_value=Settings(API_KEY="test-key")):
-            resp = client.post("/api/config/auth", json={"password": "anything"})
+            resp = client.post(
+                "/api/config/auth",
+                json={"password": "anything"},
+                headers={"X-Real-IP": "198.51.100.23"},
+            )
         assert resp.status_code == 200
         body = resp.json()
         assert body["authenticated"] is True

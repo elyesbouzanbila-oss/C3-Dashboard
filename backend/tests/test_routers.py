@@ -7,6 +7,7 @@ behavior by overriding Kubernetes client and auth dependencies with controlled m
 
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Any, Dict, List, Tuple
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,7 +17,7 @@ from config import Settings
 from fastapi import Header, HTTPException
 from typing import Optional
 
-from dependencies import get_k8s_client, get_settings_dep
+from dependencies import get_k8s_client, get_settings_dep, real_client_ip
 from models.mock_data import (
     MOCK_CALICO_NODES,
     MOCK_BGP_PEERS,
@@ -636,3 +637,199 @@ class TestFalcoWebhook:
             mock_instance.publish_falco_event.assert_not_called()
         finally:
             app.dependency_overrides[get_settings_dep] = orig_override
+
+
+# ─── Security hardening — real-client-IP rate limiting ─────────────
+# The limiter key must never be a client-writable header. The demo exploit
+# rotated X-Forwarded-For to reset the 5/min auth budget; real_client_ip
+# closes that by keying on X-Real-IP (nginx-set) or the socket peer.
+
+class TestRealClientIp:
+    def test_prefers_x_real_ip_over_spoofed_forwarded_for(self):
+        """nginx-overwritten X-Real-IP wins even if the client spoofs XFF."""
+        req = SimpleNamespace(
+            headers={"X-Forwarded-For": "203.0.113.9", "X-Real-IP": "10.0.0.5"},
+            client=SimpleNamespace(host="127.0.0.1"),
+        )
+        assert real_client_ip(req) == "10.0.0.5"
+
+    def test_xff_rotation_does_not_rotate_the_bucket(self):
+        """Direct connections ignore spoofed XFF and key on the peer address."""
+        req1 = SimpleNamespace(headers={"X-Forwarded-For": "203.0.113.1"}, client=SimpleNamespace(host="127.0.0.1"))
+        req2 = SimpleNamespace(headers={"X-Forwarded-For": "203.0.113.2"}, client=SimpleNamespace(host="127.0.0.1"))
+        assert real_client_ip(req1) == "127.0.0.1"
+        assert real_client_ip(req2) == "127.0.0.1"
+
+    def test_falls_back_to_peer_address(self):
+        req = SimpleNamespace(headers={}, client=SimpleNamespace(host="192.168.1.10"))
+        assert real_client_ip(req) == "192.168.1.10"
+
+    def test_no_client_returns_unknown(self):
+        assert real_client_ip(SimpleNamespace(headers={}, client=None)) == "unknown"
+
+    def test_whitespace_only_real_ip_falls_back_to_peer(self):
+        """Whitespace-only X-Real-IP must not produce an empty limiter key.
+
+        An empty key is falsy in slowapi's ``all(args)`` check, which would
+        skip the limit entirely (bypass). It must fall back to the peer.
+        """
+        req = SimpleNamespace(
+            headers={"X-Real-IP": "   "},
+            client=SimpleNamespace(host="127.0.0.1"),
+        )
+        assert real_client_ip(req) == "127.0.0.1"
+        # Empty value is falsy -> same fallback.
+        req2 = SimpleNamespace(headers={"X-Real-IP": ""}, client=SimpleNamespace(host="127.0.0.1"))
+        assert real_client_ip(req2) == "127.0.0.1"
+
+
+# ─── Security hardening — secret VALUES require super-user ────────
+# GET /api/config/secrets/{ns}/{name} returns base64 values. It is now gated
+# behind the same session token as write operations (the list endpoint, which
+# only exposes names/keys, stays open).
+
+class TestSecretDetailAuth:
+    @staticmethod
+    def _password_settings(monkeypatch):
+        monkeypatch.setattr(
+            "config.get_settings",
+            lambda: Settings(API_KEY="test-key", SUPER_USER_PASSWORD="secret-pw"),
+        )
+
+    @staticmethod
+    def _mock_secret_read(mock_core_v1):
+        instance = MagicMock()
+        instance.read_namespaced_secret = AsyncMock(
+            return_value=SimpleNamespace(type="Opaque", data={"password": "c2VjcmV0"})
+        )
+        mock_core_v1.return_value = instance
+
+    def test_requires_super_user_token(self, monkeypatch):
+        """Without a valid token the detail (values) endpoint is denied."""
+        self._password_settings(monkeypatch)
+        resp = client.get("/api/config/secrets/default/kubernetes-dashboard-token")
+        assert resp.status_code == 401, f"Expected 401, got {resp.status_code}: {resp.text[:200]}"
+        assert "super user" in resp.text.lower()
+
+    @patch("kubernetes_asyncio.client.CoreV1Api")
+    def test_valid_token_reads_secret_values(self, mock_core_v1, monkeypatch):
+        """With the session token the edit form can still load secret values."""
+        self._password_settings(monkeypatch)
+        self._mock_secret_read(mock_core_v1)
+        from services import auth_service
+        token = auth_service.create_token("secret-pw")
+        resp = client.get(
+            "/api/config/secrets/default/kubernetes-dashboard-token",
+            headers={"X-Super-User-Token": token},
+        )
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text[:200]}"
+        body = resp.json()
+        assert body["status"] == "success"
+        assert body["data"]["data"] == {"password": "c2VjcmV0"}
+
+    @patch("kubernetes_asyncio.client.CoreV1Api")
+    def test_no_password_mode_still_allows(self, mock_core_v1):
+        """SUPER_USER_PASSWORD unset (default) keeps reads open — no regression."""
+        self._mock_secret_read(mock_core_v1)
+        resp = client.get("/api/config/secrets/default/kubernetes-dashboard-token")
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text[:200]}"
+        assert resp.json()["status"] == "success"
+
+
+# ─── Security hardening — AI chat rate limit ──────────────────────
+
+# ─── Security hardening — failed logins return HTTP 401 ─────────
+# POST /api/config/auth now raises 401 on bad credentials instead of a
+# 200-with-body, so HTTP-level tooling can detect failed authentication.
+
+class TestSuperUserAuth:
+    # Each request carries a unique X-Real-IP so the auth limiter (5/min)
+    # buckets never collide with test_auth.py's requests in the shared
+    # in-memory storage within the same minute.
+
+    @staticmethod
+    def _password_settings(monkeypatch):
+        monkeypatch.setattr(
+            "config.get_settings",
+            lambda: Settings(API_KEY="test-key", SUPER_USER_PASSWORD="secret-pw"),
+        )
+
+    def test_correct_password_returns_token(self, monkeypatch):
+        self._password_settings(monkeypatch)
+        resp = client.post(
+            "/api/config/auth",
+            json={"password": "secret-pw"},
+            headers={"X-Real-IP": "198.51.100.11"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["authenticated"] is True
+        assert body["token"]
+
+    def test_wrong_password_returns_401(self, monkeypatch):
+        """Bad credentials produce an HTTP 401, not a 200-with-body."""
+        self._password_settings(monkeypatch)
+        resp = client.post(
+            "/api/config/auth",
+            json={"password": "nope"},
+            headers={"X-Real-IP": "198.51.100.12"},
+        )
+        assert resp.status_code == 401, f"Expected 401, got {resp.status_code}: {resp.text[:200]}"
+        assert "Invalid password" in resp.json()["detail"]
+
+    def test_no_password_mode_authenticates_without_token(self):
+        """SUPER_USER_PASSWORD unset (default) keeps no-password mode working."""
+        resp = client.post(
+            "/api/config/auth",
+            json={"password": "anything"},
+            headers={"X-Real-IP": "198.51.100.13"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["authenticated"] is True
+
+
+# ─── Security hardening — threat history degrades gracefully ─────
+# /api/threats/history must return an empty feed (not a 500) when the
+# Redis vault is unreachable.
+
+class TestThreatHistory:
+    @patch("routers.threats.ThreatService")
+    def test_success(self, mock_service_cls):
+        mock_instance = MagicMock()
+        mock_service_cls.return_value = mock_instance
+        mock_instance.get_recent_events = AsyncMock(
+            return_value=[{"rule": "x", "priority": "Warning"}]
+        )
+        resp = client.get("/api/threats/history")
+        assert resp.status_code == 200
+        assert resp.json()["events"] == [{"rule": "x", "priority": "Warning"}]
+
+    @patch("routers.threats.ThreatService")
+    def test_graceful_degradation_when_redis_down(self, mock_service_cls):
+        mock_instance = MagicMock()
+        mock_service_cls.return_value = mock_instance
+        mock_instance.get_recent_events = AsyncMock(
+            side_effect=ConnectionError("redis down")
+        )
+        resp = client.get("/api/threats/history")
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text[:200]}"
+        body = resp.json()
+        assert body["status"] == "success"
+        assert body["events"] == []
+
+
+class TestAiRateLimit:
+    def test_chat_rate_limited(self):
+        """POST /api/ai/chat allows 20/min, then 429 (blocks cost amplification).
+
+        All 21 requests carry a fixed X-Real-IP so the burst lands in its own
+        isolated rate-limit bucket and can never collide with (or pollute)
+        the other tests' bucket in the shared in-memory storage.
+        """
+        headers = {"X-Real-IP": "198.51.100.42"}
+        statuses = [
+            client.post("/api/ai/chat", json={"messages": []}, headers=headers).status_code
+            for _ in range(21)
+        ]
+        assert statuses.count(200) == 20, f"Expected 20 ok, got {statuses}"
+        assert statuses[-1] == 429, f"Expected 429 on the 21st, got {statuses[-1]}"

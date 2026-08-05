@@ -66,6 +66,25 @@ spec:
               value: "llama-3.3-70b-versatile"
             - name: AI_ENABLED
               value: "true"
+            # ── SECURITY: set these two for a hardened cluster ──────────────
+            # SUPER_USER_PASSWORD — without it every write (namespaces, secrets,
+            # deployments, cordons) is open to anyone who can reach the API.
+            # Create the secret, then uncomment:
+            #   kubectl create secret generic dashboard-super-user \
+            #     --from-literal=password=<strong-password> -n k8s-dashboard
+            # - name: SUPER_USER_PASSWORD
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: dashboard-super-user
+            #       key: password
+            # FALCO_WEBHOOK_SECRET — HMAC secret for /api/threats/falco.
+            # Without it anyone can forge threat events. Add the same value to
+            # Falcosidekick's webhook.CustomHeaders: X-Falco-Signature.
+            # - name: FALCO_WEBHOOK_SECRET
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: dashboard-super-user
+            #       key: falco-webhook-secret
           livenessProbe:
             httpGet:
               path: /healthz

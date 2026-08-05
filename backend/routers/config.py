@@ -5,13 +5,12 @@ with super-user session-token protection for write operations.
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request, status
 from kubernetes_asyncio.client.exceptions import ApiException
 from pydantic import BaseModel, Field
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 
-from dependencies import get_k8s_client, fallback_response
+from dependencies import get_k8s_client, fallback_response, real_client_ip
 from services import config_service, calico_service, auth_service
 from services.audit_service import get_audit_log, log_audit
 from services.logging_service import get_logger
@@ -41,7 +40,9 @@ IP_PATTERN = r"^(?:(\d{1,3}\.){3}\d{1,3}|[0-9a-fA-F:]+)$"
 
 # Rate limiter for the /auth endpoint — 5 attempts/minute per IP to blunt
 # brute-force password guessing (same pattern as the diagnostics limiter).
-auth_limiter = Limiter(key_func=get_remote_address)
+# Keyed on the real client IP, not X-Forwarded-For, so rotating the header
+# cannot reset the counter (see dependencies.real_client_ip).
+auth_limiter = Limiter(key_func=real_client_ip)
 
 # Header carrying the short-lived session token minted by POST /auth.
 _TOKEN_HEADER = "X-Super-User-Token"
@@ -75,9 +76,11 @@ async def verify_super_user(request: Request, auth: AuthRequest) -> AuthResponse
         token = auth_service.create_token(settings.SUPER_USER_PASSWORD)
         await log_audit(actor, "auth attempt", "super-user login", success=True)
         return AuthResponse(authenticated=True, message="Authenticated", token=token)
-    # Audit failed attempts so brute-force probes leave a forensic trail.
+    # Audit failed attempts so brute-force probes leave a forensic trail, then
+    # fail with a real HTTP 401 (not a 200-with-body) so HTTP-level scanners
+    # and proxies can detect failed authentication.
     await log_audit(actor, "auth attempt", "super-user login", success=False, error="invalid password")
-    return AuthResponse(authenticated=False, message="Invalid password")
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
 
 
 def _audit_action(request: Request) -> str:
@@ -408,8 +411,18 @@ async def get_configmap_detail(namespace: str, name: str, api_client=Depends(get
         return {"status": "error", "data": {}}
 
 @router.get("/secrets/{namespace}/{name}")
-async def get_secret_detail(namespace: str, name: str, api_client=Depends(get_k8s_client)) -> Dict[str, Any]:
-    """Full Secret detail including base64 data — for the edit form."""
+async def get_secret_detail(
+    namespace: str,
+    name: str,
+    api_client=Depends(get_k8s_client),
+    _su=Depends(require_super_user),
+) -> Dict[str, Any]:
+    """Full Secret detail including base64 data — for the edit form.
+
+    Reading secret VALUES requires a valid super-user session token (same
+    gate as write operations). The list endpoint stays open — it only
+    exposes names/types/keys, not values.
+    """
     if api_client is None:
         return fallback_response(
             {"status": "mock", "data": {"name": name, "namespace": namespace, "type": "Opaque", "data": {}}},

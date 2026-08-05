@@ -237,7 +237,11 @@ VITE_API_URL=http://localhost:8000
 >
 > **Rate limiting:** `slowapi` protects the mutating / high-traffic endpoints:
 > Falco webhook (600 POST/min/IP), threat history (30/min/IP), connectivity
-> diagnostics (10/min/IP) and super-user auth (5/min/IP).
+> diagnostics (10/min/IP), super-user auth (5/min/IP) and AI chat (20/min/IP).
+> All limits are keyed on the **real client IP** (`X-Real-IP` set by nginx, or
+> the socket peer) — never the client-writable `X-Forwarded-For` header. Run
+> uvicorn with `--no-proxy-headers` so it cannot rewrite the peer address
+> from a spoofed header.
 
 | Endpoint                         | Method     | Description                              | Rate-Limited? |
 |----------------------------------|------------|------------------------------------------|---------------|
@@ -251,7 +255,7 @@ VITE_API_URL=http://localhost:8000
 | `/api/security/rbac`             | GET        | RBAC bindings audit                    | No |
 | `/api/security/privileged-pods`  | GET        | Privileged / root containers           | No |
 | `/api/ai/status`                 | GET        | AI assistant availability              | No |
-| `/api/ai/chat`                   | POST       | Chat with the cluster-aware assistant  | No |
+| `/api/ai/chat`                   | POST       | Chat with the cluster-aware assistant  | 20/min per IP |
 | `/api/cni/nodes`                 | GET        | Per-node Calico agent status           | No |
 | `/api/cni/bgp-peers`             | GET        | BGP peer list + session state          | No |
 | `/api/cni/ippools`               | GET        | IP pool definitions                    | No |
@@ -263,7 +267,7 @@ VITE_API_URL=http://localhost:8000
 | `/api/cni/metrics/felix`         | GET        | Felix performance counters             | No |
 | `/api/cni/diagnostics/connectivity` | POST    | On-demand connectivity test (requires `X-API-Key`) | 10/min per IP |
 | `/api/config/auth`               | POST       | Mint super-user session token (15-min TTL) | 5/min per IP |
-| `/api/config/...`                | GET        | Read-only: ippools, bgppeers, namespaces, services, configmaps, secrets, deployments, nodes, settings | No |
+| `/api/config/...`                | GET        | Read-only: ippools, bgppeers, namespaces, services, configmaps, deployments, nodes, settings — secret **list** (names/keys) and **values** (`/secrets/{ns}/{name}`, requires `X-Super-User-Token`) | No |
 | `/api/config/...`                | POST/PUT/DELETE | Write ops: CRUD on the resources above + image/scale/restart, node cordon/uncordon (requires `X-Super-User-Token`; all writes audited) | No |
 | `/api/config/audit`              | GET        | Super-user write audit log (requires `X-Super-User-Token`) | No |
 
@@ -402,7 +406,9 @@ can't reach the cluster return error envelopes, never fabricated data.
 ```bash
 cd backend
 pip install -r requirements.txt
-python -m uvicorn main:app --reload
+# --no-proxy-headers keeps uvicorn from rewriting the client address from a
+# client-supplied X-Forwarded-For (rate limits key on the real client IP).
+python -m uvicorn main:app --reload --no-proxy-headers
 ```
 
 ### Frontend

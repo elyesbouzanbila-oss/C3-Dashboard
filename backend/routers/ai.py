@@ -10,17 +10,25 @@ in its system prompt. The frontend contract is unchanged:
 
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from slowapi import Limiter
 
-from dependencies import get_settings_dep
+from dependencies import get_settings_dep, real_client_ip
 from config import Settings
 from services.ai_service import AIService
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
+# Rate limiter for the LLM chat endpoint. Interactive use is comfortably
+# under 20/min; this caps runaway abuse (cost amplification / prompt-injection
+# probing) without a real user noticing. Keyed on the real client IP.
+ai_limiter = Limiter(key_func=real_client_ip)
+
 
 @router.post("/chat")
+@ai_limiter.limit("20/minute")
 async def ai_chat(
+    request: Request,
     body: Dict[str, Any],
     settings: Settings = Depends(get_settings_dep),
 ) -> Dict[str, Any]:

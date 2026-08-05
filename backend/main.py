@@ -5,7 +5,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi import Limiter
-from slowapi.util import get_remote_address
+from dependencies import real_client_ip
 
 from config import get_settings
 from routers import network as network_router
@@ -21,8 +21,9 @@ logger = get_logger(__name__)
 
 settings = get_settings()
 
-# Rate limiter: uses X-Forwarded-For header when behind nginx
-limiter = Limiter(key_func=get_remote_address)
+# Rate limiter: keyed on the real client IP (X-Real-IP from nginx, or the
+# socket peer address) — never the client-writable X-Forwarded-For header.
+limiter = Limiter(key_func=real_client_ip)
 
 
 @asynccontextmanager
@@ -59,6 +60,16 @@ async def lifespan(app: FastAPI):
         )
     else:
         logger.info("Falco webhook HMAC secret is configured")
+
+    # ── Super-user password check ──────────────────────────────
+    if not settings_.SUPER_USER_PASSWORD:
+        logger.warning(
+            "SUPER_USER_PASSWORD is not set — cluster write operations run "
+            "WITHOUT authentication (no-password mode). Set it in production "
+            "to require the super-user session token for every write."
+        )
+    else:
+        logger.info("Super-user password is configured")
 
     # ── Diagnostics namespace whitelist ───────────────────────
     from routers.cni import _DIAG_NS_WHITELIST

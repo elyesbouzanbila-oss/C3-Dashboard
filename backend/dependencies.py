@@ -1,5 +1,5 @@
 import os
-from fastapi import Depends
+from fastapi import Depends, Request
 from typing import AsyncGenerator
 
 from connection.models import ConnectionConfig
@@ -30,6 +30,33 @@ def fallback_response(mock_payload: dict, error_payload: dict) -> dict:
     if is_mock_mode():
         return mock_payload
     return error_payload
+
+
+def real_client_ip(request: Request) -> str:
+    """Rate-limit key: the true client IP, never a client-writable header.
+
+    Used as the ``key_func`` for every rate limiter. Two sources, both
+    attacker-proof:
+
+    - ``X-Real-IP``: nginx sets this to the socket peer address
+      (``$remote_addr``), overwriting anything the client sent, so it cannot
+      be spoofed when traffic flows through the proxy.
+    - The socket peer address (``request.client.host``) for direct
+      connections (dev / mock mode, or in-cluster pod traffic).
+
+    ``X-Forwarded-For`` is deliberately ignored: it is append-only from the
+    proxy's perspective, so when a client connects directly it controls
+    every entry and can rotate it to reset the limiter (the classic
+    brute-force bypass).
+    """
+    real_ip = request.headers.get("X-Real-IP")
+    # Guard against whitespace-only values: ``"  ".strip()`` would produce an
+    # empty key, which slowapi treats as falsy and SKIPS the limit entirely.
+    if real_ip and real_ip.strip():
+        return real_ip.strip()
+    if request.client:
+        return request.client.host
+    return "unknown"
 
 
 async def get_settings_dep() -> Settings:
