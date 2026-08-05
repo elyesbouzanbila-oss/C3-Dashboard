@@ -63,6 +63,7 @@ kubectl auth can-i get pods/log --as=system:serviceaccount:k8s-dashboard:dashboa
 
 ### Prerequisites
 - Docker & Docker Compose
+- Node.js `24.15.x` or `>=26.0.0` for frontend build/test compatibility
 - A Kubernetes cluster (local, cloud, or on-prem)
 - `kubectl` configured or a service account token with cluster-wide read permissions
 - (Optional) Prometheus deployed for time-series monitoring charts
@@ -74,6 +75,13 @@ docker compose up --build
 ```
 
 Visit: http://localhost:5173
+
+### Frontend local test
+```bash
+cd frontend
+npm ci
+npm test
+```
 
 ### Services
 | Service  | URL                        |
