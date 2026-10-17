@@ -20,6 +20,8 @@ backend/SECURITY_FIXES.md
 rapport/
 .freebuff/
 .agents/skills/
+# OpenCode project config (local paths, not for commit)
+/opencode.json
 .claude/skills/
 skills-lock.json
 k8s/secret.yaml
