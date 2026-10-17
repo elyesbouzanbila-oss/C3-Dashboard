@@ -15,16 +15,10 @@ if [ ! -f /etc/nginx/ssl/tls.crt ] || [ ! -f /etc/nginx/ssl/tls.key ]; then
   echo "✔ Self-signed certificate generated at /etc/nginx/ssl/"
 fi
 
-# ── 2. Write runtime config for the SPA ───────────────────────────
-# The config.js file is loaded by index.html before the app bundle
-# and provides runtime environment variables (e.g. API key) that are
-# NOT baked into the static build.
-cat > /usr/share/nginx/html/config.js << EOF
-window.__ENV__ = {
-  VITE_API_KEY: "${API_KEY:-}",
-};
-EOF
-
-echo "→ Runtime config written (API_KEY is $( [ -n "$API_KEY" ] && echo 'set' || echo 'not set' ))"
+# ── 2. No runtime config ──────────────────────────────────────────
+# The browser needs no secrets or API keys: all backend calls go through
+# the same-origin nginx proxy, and privileged operations mint a short-lived
+# session token via POST /api/config/auth. (The old config.js mechanism that
+# published an API key to every visitor has been removed.)
 
 exec nginx -g "daemon off;"

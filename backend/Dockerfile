@@ -11,7 +11,13 @@ COPY requirements.txt .
 # --retries/--timeout make the build resilient to flaky PyPI connections
 RUN pip install --no-cache-dir --retries 10 --timeout 120 -r requirements.txt
 
-COPY . .
+# Create a non-root user for the backend (C3: do not run as root).
+# Fixed UID/GID 1000 so the compose `user: "1000:1000"` override and the
+# Kubernetes securityContext (runAsUser: 1000) match the file ownership.
+RUN groupadd -r -g 1000 dashboard && useradd -r -u 1000 -g dashboard -d /app -s /sbin/nologin dashboard
+# chown the app dir so the non-root user can read the code.
+RUN chown -R dashboard:dashboard /app
+USER dashboard
 
 EXPOSE 8000
 # --no-proxy-headers: never let uvicorn rewrite the client address from

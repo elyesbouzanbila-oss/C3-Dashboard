@@ -58,7 +58,7 @@ async def list_pods(
 		logger.warning(f"K8s connection failed: {e}")
 		return fallback_response(
 			{"status": "mock", "items": MOCK_PODS},
-			{"status": "error", "items": [], "error": str(e)},
+			{"status": "error", "items": [], "error": "Request failed — see server logs for details"},
 		)
 
 from services.utils import label_selector_matches
@@ -212,5 +212,5 @@ async def get_topology(
 		mock = build_mock_topology()
 		return fallback_response(
 			{"status": "mock", "nodes": mock["nodes"], "edges": mock["edges"]},
-			{"status": "error", "nodes": [], "edges": [], "error": str(e)},
+			{"status": "error", "nodes": [], "edges": [], "error": "Request failed — see server logs for details"},
 		)

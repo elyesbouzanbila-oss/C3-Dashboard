@@ -14,6 +14,11 @@ spec:
       labels:
         app: dashboard-frontend
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
       # No nodeSelector — the frontend (static files + nginx proxy) can run
       # on any node. Only the backend needs to be on the control-plane node
       # for in-cluster API access (and that's handled by its own deployment).
@@ -34,13 +39,7 @@ spec:
             - containerPort: 443
               protocol: TCP
               name: https
-          env:
-            - name: API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: dashboard-api-key
-                  key: api-key
-                  optional: true
+          env: []
           volumeMounts:
             - name: tls-certs
               mountPath: /etc/nginx/ssl

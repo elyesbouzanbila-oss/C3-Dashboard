@@ -10,7 +10,7 @@ from kubernetes_asyncio.client.exceptions import ApiException
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 
-from dependencies import get_k8s_client, fallback_response, real_client_ip
+from dependencies import get_k8s_client, fallback_response, real_client_ip, is_mock_mode
 from services import config_service, calico_service, auth_service
 from services.audit_service import get_audit_log, log_audit
 from services.logging_service import get_logger
@@ -131,6 +131,21 @@ async def require_super_user(
     is_write = request.method in ("POST", "PUT", "DELETE", "PATCH")
 
     if not settings.SUPER_USER_PASSWORD:
+        # Fail closed: without a super-user password, writes are refused unless
+        # the operator explicitly opted into demo mode (K8S_MODE=mock). Reads
+        # stay allowed (and audited) so the dashboard remains readable.
+        if is_write and not is_mock_mode():
+            actor = request.client.host if request.client else "unknown"
+            action = _audit_action(request)
+            target = await _audit_target(request)
+            await log_audit(
+                actor, action, target, success=False,
+                error="super-user password not configured — writes refused",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Write operations require SUPER_USER_PASSWORD to be configured",
+            )
         if not is_write:
             yield "no-password-mode"
             return
@@ -296,7 +311,7 @@ async def list_ip_pools(api_client=Depends(get_k8s_client)) -> Dict[str, Any]:
         logger.warning(f"List IP pools failed: {e}")
         return fallback_response(
             {"status": "mock", "data": MOCK_IP_POOLS},
-            {"status": "error", "data": [], "error": str(e)},
+            {"status": "error", "data": [], "error": "Request failed — see server logs for details"},
         )
 
 @router.get("/bgppeers")
@@ -313,7 +328,7 @@ async def list_bgp_peers(api_client=Depends(get_k8s_client)) -> Dict[str, Any]:
         logger.warning(f"List BGP peers failed: {e}")
         return fallback_response(
             {"status": "mock", "data": MOCK_BGP_PEERS},
-            {"status": "error", "data": [], "error": str(e)},
+            {"status": "error", "data": [], "error": "Request failed — see server logs for details"},
         )
 
 @router.get("/namespaces")
@@ -559,8 +574,8 @@ def _raise_k8s_error(exc: Exception, context: str) -> None:
             detail = f"{hint} — {detail}".strip()
         logger.error(f"{context}: Kubernetes API error {status}: {detail}")
         raise HTTPException(status_code=status, detail=detail)
-    logger.error(f"{context}: {exc}")
-    raise HTTPException(status_code=500, detail=str(exc))
+    logger.error(f"{context}: {type(exc).__name__}")
+    raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ═══════════════════════════════════════════════════════════════════

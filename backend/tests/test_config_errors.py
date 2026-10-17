@@ -16,6 +16,7 @@ from main import app
 from config import Settings
 from dependencies import get_k8s_client
 from routers import config as config_router
+from services import auth_service
 
 # Self-contained: override the K8s client dependency so endpoint tests don't
 # depend on test_routers.py's module-level overrides (which would silently
@@ -104,48 +105,72 @@ class TestRaiseK8sError:
             assert False, "should have raised"
         except HTTPException as e:
             assert e.status_code == 500
-            assert "boom" in e.detail
+            # Error detail is sanitized — no raw exception text leaks to callers.
+            assert e.detail == "Internal server error"
 
 
-# ─── Endpoint-level tests (no-password mode, so writes are allowed) ─
+# ─── Endpoint-level tests (super-user password configured, writes authenticated) ─
 
-def _no_password_settings():
-    return Settings(API_KEY="test-key")
+_TEST_PASSWORD = "test-pw"
+
+
+def _password_settings():
+    return Settings(API_KEY="test-key", SUPER_USER_PASSWORD=_TEST_PASSWORD)
+
+
+def _super_user_headers():
+    token = auth_service.create_token(_TEST_PASSWORD)
+    return {"X-Super-User-Token": token}
 
 
 class TestWriteEndpointErrorMapping:
     @patch("services.config_service.create_ip_pool", new_callable=AsyncMock)
     def test_create_ip_pool_403_readable(self, mock_create):
         mock_create.side_effect = _api_exc(403, "Forbidden", 'ippools "default" is forbidden')
-        with patch("config.get_settings", return_value=_no_password_settings()), \
+        with patch("config.get_settings", return_value=_password_settings()), \
              patch("services.audit_service._redis", return_value=AsyncMock()):
-            resp = client.post("/api/config/ippools", json={"name": "default", "cidr": "10.0.0.0/16"})
+            resp = client.post(
+                "/api/config/ippools",
+                json={"name": "default", "cidr": "10.0.0.0/16"},
+                headers=_super_user_headers(),
+            )
         assert resp.status_code == 403, resp.text[:300]
         assert "RBAC" in resp.json()["detail"]
 
     @patch("services.config_service.create_namespace", new_callable=AsyncMock)
     def test_create_namespace_409_readable(self, mock_create):
         mock_create.side_effect = _api_exc(409, "AlreadyExists", 'namespaces "prod" already exists')
-        with patch("config.get_settings", return_value=_no_password_settings()), \
+        with patch("config.get_settings", return_value=_password_settings()), \
              patch("services.audit_service._redis", return_value=AsyncMock()):
-            resp = client.post("/api/config/namespaces", json={"name": "prod"})
+            resp = client.post(
+                "/api/config/namespaces",
+                json={"name": "prod"},
+                headers=_super_user_headers(),
+            )
         assert resp.status_code == 409, resp.text[:300]
         assert "already exists" in resp.json()["detail"].lower()
 
     @patch("services.config_service.delete_configmap", new_callable=AsyncMock)
     def test_delete_configmap_404_readable(self, mock_delete):
         mock_delete.side_effect = _api_exc(404, "NotFound", 'configmaps "ghost" not found')
-        with patch("config.get_settings", return_value=_no_password_settings()), \
+        with patch("config.get_settings", return_value=_password_settings()), \
              patch("services.audit_service._redis", return_value=AsyncMock()):
-            resp = client.delete("/api/config/configmaps/default/ghost")
+            resp = client.delete(
+                "/api/config/configmaps/default/ghost",
+                headers=_super_user_headers(),
+            )
         assert resp.status_code == 404, resp.text[:300]
         assert "not found" in resp.json()["detail"].lower()
 
     @patch("services.config_service.scale_deployment", new_callable=AsyncMock)
     def test_scale_deployment_plain_error_500(self, mock_scale):
         mock_scale.side_effect = RuntimeError("boom")
-        with patch("config.get_settings", return_value=_no_password_settings()), \
+        with patch("config.get_settings", return_value=_password_settings()), \
              patch("services.audit_service._redis", return_value=AsyncMock()):
-            resp = client.post("/api/config/deployments/default/web/scale", json={"replicas": 2})
+            resp = client.post(
+                "/api/config/deployments/default/web/scale",
+                json={"replicas": 2},
+                headers=_super_user_headers(),
+            )
         assert resp.status_code == 500, resp.text[:300]
-        assert "boom" in resp.json()["detail"]
+        assert resp.json()["detail"] == "Internal server error"

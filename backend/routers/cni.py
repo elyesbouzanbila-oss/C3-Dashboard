@@ -6,7 +6,7 @@ import re
 import uuid
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Header, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from slowapi import Limiter
 
 from config import Settings
@@ -19,6 +19,7 @@ from models.mock_data import (
     MOCK_IPAM_BLOCKS,
     MOCK_IP_POOLS,
 )
+from routers.config import require_super_user
 from services import calico_service
 from services.felix_metrics_service import get_felix_metrics, get_felix_metrics_time_series
 from services.logging_service import get_logger
@@ -52,21 +53,6 @@ def _validate_k8s_name(value: str, field: str) -> str:
     return value
 
 
-def _check_api_key(x_api_key: str = Header("", alias="X-API-Key")) -> None:
-    """FastAPI dependency: check API key for write operations.
-
-    Only protects state-changing endpoints (POST diagnostics).
-    GET endpoints remain open — they are read-only.
-    """
-    from config import get_settings
-    settings = get_settings()
-    if settings.API_KEY and x_api_key != settings.API_KEY:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or missing API key. Set X-API-Key header.",
-        )
-
-
 def _validate_diag_namespace(ns: str, field: str) -> str:
     """Validate that a namespace is in the diagnostics whitelist."""
     _validate_k8s_name(ns, field)
@@ -94,7 +80,7 @@ async def list_cni_nodes(
         logger.warning(f"CNI nodes failed: {e}")
         return fallback_response(
             {"status": "mock", "data": MOCK_CALICO_NODES},
-            {"status": "error", "data": [], "error": str(e)},
+            {"status": "error", "data": [], "error": "Request failed — see server logs for details"},
         )
 
 
@@ -110,7 +96,7 @@ async def list_bgp_peers(
         logger.warning(f"CNI BGP peers failed: {e}")
         return fallback_response(
             {"status": "mock", "data": MOCK_BGP_PEERS},
-            {"status": "error", "data": [], "error": str(e)},
+            {"status": "error", "data": [], "error": "Request failed — see server logs for details"},
         )
 
 
@@ -126,7 +112,7 @@ async def list_ip_pools(
         logger.warning(f"CNI IP pools failed: {e}")
         return fallback_response(
             {"status": "mock", "data": MOCK_IP_POOLS},
-            {"status": "error", "data": [], "error": str(e)},
+            {"status": "error", "data": [], "error": "Request failed — see server logs for details"},
         )
 
 
@@ -142,7 +128,7 @@ async def ipam_utilization(
         logger.warning(f"CNI IPAM utilization failed: {e}")
         return fallback_response(
             {"status": "mock", "data": MOCK_IPAM_BLOCKS},
-            {"status": "error", "data": [], "error": str(e)},
+            {"status": "error", "data": [], "error": "Request failed — see server logs for details"},
         )
 
 
@@ -158,7 +144,7 @@ async def list_cni_policies(
         logger.warning(f"CNI policies failed: {e}")
         return fallback_response(
             {"status": "mock", "data": MOCK_CNI_POLICIES},
-            {"status": "error", "data": [], "error": str(e)},
+            {"status": "error", "data": [], "error": "Request failed — see server logs for details"},
         )
 
 
@@ -208,7 +194,7 @@ async def policy_coverage(
         from models.mock_data import MOCK_COVERAGE
         return fallback_response(
             {"status": "mock", "data": MOCK_COVERAGE},
-            {"status": "error", "data": [], "error": str(e)},
+            {"status": "error", "data": [], "error": "Request failed — see server logs for details"},
         )
 
 
@@ -257,7 +243,7 @@ async def policy_matrix(
             {
                 "status": "error",
                 "data": {"workload_endpoints": [], "policy_impacts": []},
-                "error": str(e),
+                "error": "Request failed — see server logs for details",
             },
         )
 
@@ -276,7 +262,7 @@ async def cni_topology(
         mock = build_mock_topology()
         return fallback_response(
             {"status": "mock", "data": mock},
-            {"status": "error", "data": {"nodes": [], "edges": []}, "error": str(e)},
+            {"status": "error", "data": {"nodes": [], "edges": []}, "error": "Request failed — see server logs for details"},
         )
 
 
@@ -299,7 +285,7 @@ async def felix_metrics(
         logger.warning(f"Felix metrics query failed: {e}")
         return fallback_response(
             {"status": "mock", "data": MOCK_FELIX_METRICS, **({"time_series": {}} if include_series else {})},
-            {"status": "error", "data": {}, **({"time_series": {}} if include_series else {}), "error": str(e)},
+            {"status": "error", "data": {}, **({"time_series": {}} if include_series else {}), "error": "Request failed — see server logs for details"},
         )
 
 
@@ -315,7 +301,7 @@ async def connectivity_diagnostics(
     target_port: int = Query(80, description="Target port to test"),
     timeout_seconds: int = Query(30, description="Max time to wait for diagnostic pod (5-60)"),
     api_client=Depends(get_k8s_client),
-    _auth=Depends(_check_api_key),
+    _su=Depends(require_super_user),
 ) -> Dict[str, Any]:
     """On-demand connectivity test between pods / services.
 
@@ -324,7 +310,7 @@ async def connectivity_diagnostics(
     The pod is automatically deleted after the test completes.
 
     **Security:**
-    - Requires a valid X-API-Key header (if API_KEY is configured)
+    - Requires a valid super-user session token (X-Super-User-Token)
     - Rate-limited to 10 requests/minute per IP
     - source_namespace and target_namespace must be in the whitelist
       (configurable via DIAG_NAMESPACE_WHITELIST env var)
@@ -499,10 +485,10 @@ async def connectivity_diagnostics(
                     "target": target,
                     "reachable": None,
                     "latency_ms": None,
-                    "note": f"Diagnostic could not run: {e}",
+                    "note": "Diagnostic could not run",
                     "log_preview": "",
                 },
-                "error": str(e),
+                "error": "Diagnostic failed — see server logs for details",
             },
         )
 
