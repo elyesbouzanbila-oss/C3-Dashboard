@@ -70,6 +70,39 @@ fi
 
 # ── 3. Apply all manifests ─────────────────────────────────────────
 echo ""
+echo "→ [3/4] Validating Kubernetes secrets..."
+
+# Secret manifests are gitignored and must be created (with real values)
+# before deploying. The kustomization references them, so both "missing"
+# and "still a placeholder" are deploy-blocking conditions (H4).
+SECRET_FILES=("secret-groq.yaml" "secret-redis.yaml" "secret-super-user.yaml")
+PLACEHOLDER_PATTERN='change-me-to-a-real'
+FOUND_PLACEHOLDER=0
+MISSING_FILE=0
+for name in "${SECRET_FILES[@]}"; do
+    f="${SCRIPT_DIR}/k8s/${name}"
+    if [ ! -f "$f" ]; then
+        echo "   ✘ Missing secret manifest: k8s/${name}"
+        echo "     Copy it from the example / earlier commit and fill in real values."
+        MISSING_FILE=1
+        continue
+    fi
+    if grep -qE "${PLACEHOLDER_PATTERN}" "$f" 2>/dev/null; then
+        echo "   ✘ Secret manifest still contains a placeholder value: k8s/${name}"
+        echo "     Replace the placeholder before deploying (rotate credentials first)."
+        FOUND_PLACEHOLDER=1
+    fi
+done
+if [ "${MISSING_FILE}" -ne 0 ]; then
+    echo "   Aborting deploy — create the missing secret manifests first."
+    exit 1
+fi
+if [ "${FOUND_PLACEHOLDER}" -ne 0 ]; then
+    echo "   Aborting deploy — fix the placeholder secret values first."
+    exit 1
+fi
+echo "   ✔ All secret manifests present with real values."
+echo ""
 echo "→ [3/4] Applying Kubernetes manifests..."
 kubectl apply -k "${SCRIPT_DIR}/k8s/"
 

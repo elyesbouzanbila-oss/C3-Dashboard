@@ -26,6 +26,15 @@ class Settings(BaseSettings):
     # Separate secret for the Falco webhook (not exposed to browsers)
     FALCO_WEBHOOK_SECRET: Optional[str] = None
 
+    # Trust X-Real-IP for rate-limit keying. Default True: in both deployment
+    # modes the backend sits behind nginx, which OVERWRITES X-Real-IP with the
+    # socket peer address ($remote_addr), so the header is proxy-controlled.
+    # Set to False only when the backend is reachable directly by untrusted
+    # clients (no nginx in front) — otherwise clients can rotate the header
+    # to reset every rate limit. Direct access is loopback-only in compose
+    # and ClusterIP-only in Kubernetes, so True is safe by default.
+    TRUST_PROXY_HEADERS: bool = True
+
     # K8s connection settings
     K8S_MODE: str = "kubeconfig"
     K8S_SERVER: Optional[str] = None

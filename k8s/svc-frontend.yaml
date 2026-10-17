@@ -7,10 +7,10 @@ metadata:
 spec:
   type: NodePort
   ports:
-    - name: http
-      port: 80
-      targetPort: 5173
-      protocol: TCP
+    # HTTPS only. The plaintext HTTP route (80 → 5173) was removed:
+    # super-user passwords and secret values must never transit a
+    # world-reachable NodePort in cleartext. Pod liveness/readiness probes
+    # still target container port 5173 internally and are unaffected.
     - name: https
       port: 443
       targetPort: 443

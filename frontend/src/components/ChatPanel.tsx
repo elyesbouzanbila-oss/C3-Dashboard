@@ -222,9 +222,13 @@ export function ChatPanel() {
   )
 }
 
-/** Simple markdown-like rendering for basic formatting */
+/** Simple markdown-like rendering for basic formatting. All output is rendered
+ * as React text children — never dangerouslySetInnerHTML — so user/LLM-controlled
+ * text cannot inject HTML or script tags. Note: there is deliberately NO manual
+ * HTML escaping here; React escapes text children automatically, and escaping
+ * manually would double-escape (< renders as "&lt;"). */
 function renderContent(text: string): React.ReactNode {
-  // Split by code blocks
+  // Split by code blocks first so their contents are never treated as markdown.
   const parts = text.split(/(```[\s\S]*?```)/g)
   return parts.map((part, i) => {
     if (part.startsWith('```')) {
@@ -235,12 +239,37 @@ function renderContent(text: string): React.ReactNode {
         </pre>
       )
     }
-    // Bold text
-    let formatted = part.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    // Inline code
-    formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>')
-    // Line breaks
-    formatted = formatted.replace(/\n/g, '<br/>')
-    return <span key={i} dangerouslySetInnerHTML={{ __html: formatted }} />
+    // Split on inline-code spans so code contents are not bold/line-break processed.
+    const codeParts = part.split(/`([^`]+)`/g)
+    return codeParts.map((seg, j) => {
+      if (j % 2 === 1) {
+        // Odd segments are the captured inline-code contents.
+        return (
+          <code key={`${i}-${j}`} className="chat-inline-code">
+            {seg}
+          </code>
+        )
+      }
+      // Even segments are normal text: bold markers then line breaks.
+      const boldParts = seg.split(/(\*\*[^*]+?\*\*)/g)
+      return boldParts.map((bp, k) => {
+        if (bp.startsWith('**') && bp.endsWith('**') && bp.length > 4) {
+          return <strong key={`${i}-${j}-${k}`}>{bp.slice(2, -2)}</strong>
+        }
+        // Line breaks: split the segment and interleave <br/> elements
+        // (strings.replace() with an element would render "[object Object]").
+        const lines = bp.split('\n')
+        return (
+          <React.Fragment key={`${i}-${j}-${k}`}>
+            {lines.map((line, li) => (
+              <React.Fragment key={li}>
+                {line}
+                {li < lines.length - 1 && <br />}
+              </React.Fragment>
+            ))}
+          </React.Fragment>
+        )
+      })
+    })
   })
 }

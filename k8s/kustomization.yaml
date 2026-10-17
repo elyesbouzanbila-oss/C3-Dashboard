@@ -8,7 +8,11 @@ resources:
   - sa.yaml
   - clusterrole.yaml
   - clusterrolebinding.yaml
-  - secret.yaml
+  # secret manifests (gitignored, created locally with real values) —
+  # required before `kubectl apply -k` will build.
+  - secret-groq.yaml
+  - secret-redis.yaml
+  - secret-super-user.yaml
   - deploy-backend.yaml
   - svc-backend.yaml
   - deploy-frontend.yaml
@@ -16,7 +20,6 @@ resources:
   - deploy-redis.yaml
   - svc-redis.yaml
   - pvc-redis.yaml
-  - secret-redis.yaml
   - networkpolicy-redis.yaml
   - networkpolicy-backend.yaml
   - networkpolicy-frontend.yaml

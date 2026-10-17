@@ -15,6 +15,11 @@ spec:
         app: dashboard-backend
     spec:
       serviceAccountName: dashboard-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
       # No nodeSelector — the backend can use in-cluster auth from any node
       # via its service account (dashboard-sa).
       containers:
@@ -26,6 +31,13 @@ spec:
           # Use IfNotPresent so the image is either loaded locally (kind load)
           # or pulled from a registry. Change to Always if you push to a registry.
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
           ports:
             - containerPort: 8000
               protocol: TCP
@@ -67,24 +79,27 @@ spec:
             - name: AI_ENABLED
               value: "true"
             # ── SECURITY: set these two for a hardened cluster ──────────────
-            # SUPER_USER_PASSWORD — without it every write (namespaces, secrets,
-            # deployments, cordons) is open to anyone who can reach the API.
-            # Create the secret, then uncomment:
-            #   kubectl create secret generic dashboard-super-user \
-            #     --from-literal=password=<strong-password> -n k8s-dashboard
-            # - name: SUPER_USER_PASSWORD
-            #   valueFrom:
-            #     secretKeyRef:
-            #       name: dashboard-super-user
-            #       key: password
-            # FALCO_WEBHOOK_SECRET — HMAC secret for /api/threats/falco.
-            # Without it anyone can forge threat events. Add the same value to
-            # Falcosidekick's webhook.CustomHeaders: X-Falco-Signature.
-            # - name: FALCO_WEBHOOK_SECRET
-            #   valueFrom:
-            #     secretKeyRef:
-            #       name: dashboard-super-user
-            #       key: falco-webhook-secret
+            # ── SECURITY: required for a hardened cluster ──────────────
+            # Without SUPER_USER_PASSWORD every write is refused (fail closed).
+            # Create the secret before deploying:
+            #   kubectl create secret generic dashboard-super-user \\
+            #     --from-literal=password=<strong-password> \\
+            #     --from-literal=falco-webhook-secret=<strong-secret> -n k8s-dashboard
+            - name: SUPER_USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dashboard-super-user
+                  key: password
+            - name: FALCO_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: dashboard-super-user
+                  key: falco-webhook-secret
+            # nginx overwrites X-Real-IP with the socket peer address before
+            # proxying to us, so the rate-limit key can be trusted. The backend
+            # is ClusterIP-only — it has no direct route from clients.
+            - name: TRUST_PROXY_HEADERS
+              value: "true"
           livenessProbe:
             httpGet:
               path: /healthz

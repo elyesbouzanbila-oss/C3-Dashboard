@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from main import app
 from config import Settings
 from fastapi import Header, HTTPException
+from services import auth_service
 from typing import Optional
 
 from dependencies import get_k8s_client, get_settings_dep, real_client_ip
@@ -97,7 +98,8 @@ class TestCniNodes:
         mock_fn.side_effect = RuntimeError("no cluster")
         body = assert_ok(client.get("/api/cni/nodes"), "error")
         assert body["data"] == []
-        assert "no cluster" in body.get("error", "")
+        # Error detail stays server-side (leaked only to logs).
+        assert "no cluster" not in body.get("error", "")
 
     @patch(PATCH_TARGET, new_callable=AsyncMock)
     def test_mock_mode_fallback(self, mock_fn, monkeypatch):
@@ -412,7 +414,8 @@ class TestCniPolicyMatrix:
         mock_pods.side_effect = RuntimeError("no cluster")
         body = assert_ok(client.get("/api/cni/policy-matrix"), "error")
         assert body["data"] == {"workload_endpoints": [], "policy_impacts": []}
-        assert "no cluster" in body.get("error", "")
+        # Error detail stays server-side (leaked only to logs).
+        assert "no cluster" not in body.get("error", "")
 
     @patch(PATCH_PODS, new_callable=AsyncMock)
     @patch(PATCH_POLICIES, new_callable=AsyncMock)
@@ -428,20 +431,34 @@ class TestCniPolicyMatrix:
 
 
 class TestCniConnectivityDiagnostics:
-    _AUTH_HEADERS = {"X-API-Key": "test-key-not-real"}
+    _TEST_PASSWORD = "test-pw"
 
-    def test_requires_target(self):
+    @staticmethod
+    def _password_settings(monkeypatch):
+        monkeypatch.setattr(
+            "config.get_settings",
+            lambda: Settings(API_KEY="test-key", SUPER_USER_PASSWORD=TestCniConnectivityDiagnostics._TEST_PASSWORD),
+        )
+
+    @staticmethod
+    def _auth_headers():
+        token = auth_service.create_token(TestCniConnectivityDiagnostics._TEST_PASSWORD)
+        return {"X-Super-User-Token": token}
+
+    def test_requires_target(self, monkeypatch):
         """POST without target_pod or target_service returns 400."""
+        self._password_settings(monkeypatch)
         resp = client.post(
             "/api/cni/diagnostics/connectivity",
             params={"source_pod": "my-pod"},
-            headers=self._AUTH_HEADERS,
+            headers=self._auth_headers(),
         )
         assert resp.status_code == 400, f"Expected 400, got {resp.status_code}: {resp.text[:200]}"
 
     @patch("kubernetes_asyncio.client.CoreV1Api")
     def test_error_fallback(self, mock_core_v1, monkeypatch):
         """When K8s is unavailable, the endpoint returns an error status."""
+        self._password_settings(monkeypatch)
         monkeypatch.delenv("K8S_MODE", raising=False)
         mock_core_v1.side_effect = RuntimeError("no cluster")
         body = assert_ok(
@@ -454,7 +471,7 @@ class TestCniConnectivityDiagnostics:
                     "target_namespace": "default",
                     "target_port": 80,
                 },
-                headers=self._AUTH_HEADERS,
+                headers=self._auth_headers(),
             ),
             "error",
         )
@@ -464,6 +481,7 @@ class TestCniConnectivityDiagnostics:
     @patch("kubernetes_asyncio.client.CoreV1Api")
     def test_mock_mode_fallback(self, mock_core_v1, monkeypatch):
         """With K8S_MODE=mock, the endpoint serves a fabricated success result."""
+        self._password_settings(monkeypatch)
         monkeypatch.setenv("K8S_MODE", "mock")
         mock_core_v1.side_effect = RuntimeError("no cluster")
         body = assert_ok(
@@ -476,7 +494,7 @@ class TestCniConnectivityDiagnostics:
                     "target_namespace": "default",
                     "target_port": 80,
                 },
-                headers=self._AUTH_HEADERS,
+                headers=self._auth_headers(),
             ),
             "mock",
         )
@@ -555,36 +573,38 @@ class TestMockEndpoints:
 import json
 import hashlib
 import hmac
+from datetime import datetime, timedelta, timezone
+
+from routers import threats as threats_router
+
+
+def _falco_time(**delta):
+    """Fresh RFC3339 falco timestamp, optionally shifted (e.g. hours=-2)."""
+    return (datetime.now(timezone.utc) + timedelta(**delta)).strftime(
+        "%Y-%m-%dT%H:%M:%S.%fZ"
+    )[:26] + "Z"
 
 
 class TestFalcoWebhook:
+    # Dated "now": the stale-event filter would otherwise drop the payload
+    # (it rejects events older than routers.threats._MAX_EVENT_AGE_SECONDS).
     PAYLOAD_DICT = {
         "output": "File opened for writing",
         "priority": "Warning",
         "rule": "Write below binary dir",
-        "time": "2025-07-03T12:00:00Z",
+        "time": _falco_time(),
     }
 
-    @patch("routers.threats.ThreatService")
-    def test_publish_falco_event_without_secret(self, mock_service_cls):
-        """Falco webhook works without a signature when FALCO_WEBHOOK_SECRET is not set."""
-        mock_instance = MagicMock()
-        mock_service_cls.return_value = mock_instance
-        mock_instance.publish_falco_event = AsyncMock()
+    def _signed_post(self, payload_dict: dict, monkeypatch, *, replay: bool = False):
+        """POST a correctly HMAC-signed falco event with controlled dedupe.
 
-        body = client.post("/api/threats/falco", json=self.PAYLOAD_DICT).json()
-        assert body["status"] == "ok"
-        mock_instance.publish_falco_event.assert_awaited_once()
-
-    @patch("routers.threats.ThreatService")
-    def test_publish_falco_event_with_valid_signature(self, mock_service_cls):
-        """Falco webhook accepts valid HMAC signature when secret is set."""
-        mock_instance = MagicMock()
-        mock_service_cls.return_value = mock_instance
-        mock_instance.publish_falco_event = AsyncMock()
-
+        Returns (response, ThreatService instance mock).
+        """
+        monkeypatch.setattr(
+            threats_router, "_seen_signature_before", AsyncMock(return_value=replay)
+        )
         secret = "test-falco-secret"
-        raw_body = json.dumps(self.PAYLOAD_DICT, separators=(",", ":")).encode()
+        raw_body = json.dumps(payload_dict, separators=(",", ":")).encode()
         expected_sig = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
 
         orig_override = app.dependency_overrides[get_settings_dep]
@@ -594,19 +614,111 @@ class TestFalcoWebhook:
 
         app.dependency_overrides[get_settings_dep] = _override_with_secret
         try:
-            resp = client.post(
-                "/api/threats/falco",
-                content=raw_body,
-                headers={
-                    "Content-Type": "application/json",
-                    "X-Falco-Signature": expected_sig,
-                },
-            )
-            body = resp.json()
-            assert body["status"] == "ok", f"Expected ok, got {resp.status_code}: {resp.text[:200]}"
-            mock_instance.publish_falco_event.assert_awaited_once()
+            with patch("routers.threats.ThreatService") as mock_service_cls:
+                instance = MagicMock()
+                mock_service_cls.return_value = instance
+                instance.publish_falco_event = AsyncMock()
+                instance.store_falco_event = AsyncMock()
+                resp = client.post(
+                    "/api/threats/falco",
+                    content=raw_body,
+                    headers={"X-Falco-Signature": expected_sig, "Content-Type": "application/json"},
+                )
         finally:
             app.dependency_overrides[get_settings_dep] = orig_override
+        return resp, instance
+
+    def test_publish_falco_event_with_valid_signature(self, monkeypatch):
+        """Falco webhook accepts a valid HMAC signature when the secret is set."""
+        resp, instance = self._signed_post(self.PAYLOAD_DICT, monkeypatch)
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text[:200]}"
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["events_processed"] == 1
+        instance.publish_falco_event.assert_awaited_once()
+
+    def test_publish_falco_event_rejects_replayed_signature(self, monkeypatch):
+        """A signature already processed within the dedupe window → 409."""
+        resp, instance = self._signed_post(self.PAYLOAD_DICT, monkeypatch, replay=True)
+        assert resp.status_code == 409, f"Expected 409, got {resp.status_code}: {resp.text[:200]}"
+        instance.publish_falco_event.assert_not_called()
+
+    def test_publish_falco_event_filters_stale_events(self, monkeypatch):
+        """Parseable timestamps older than the window are dropped, not stored."""
+        stale = dict(self.PAYLOAD_DICT, time=_falco_time(hours=-2))
+        resp, instance = self._signed_post(stale, monkeypatch)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["events_processed"] == 0
+        assert body["events_filtered_stale"] == 1
+        instance.publish_falco_event.assert_not_called()
+
+
+class TestFalcoTimeParsing:
+    """Unit tests for replay-window timestamp parsing."""
+
+    def test_nanosecond_precision_is_parseable(self):
+        """Falco emits 9-digit fractional seconds — beyond fromisoformat."""
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S") + ".123456789Z"
+        parsed = threats_router._parse_event_time(ts)
+        assert parsed is not None
+        assert parsed.tzinfo is not None
+
+    def test_epoch_millis_and_epoch_string(self):
+        now = datetime.now(timezone.utc)
+        parsed = threats_router._parse_event_time(int(now.timestamp() * 1000))
+        assert parsed is not None
+        assert abs((now - parsed).total_seconds()) < 1
+        parsed = threats_router._parse_event_time(str(int(now.timestamp() * 1000)))
+        assert parsed is not None
+
+    def test_naive_timestamp_becomes_utc(self):
+        parsed = threats_router._parse_event_time(
+            datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+        )
+        assert parsed is not None
+        assert parsed.tzinfo is not None
+
+    def test_plus_hhmm_offset_is_normalised(self):
+        parsed = threats_router._parse_event_time("2025-07-03T14:00:00.500000000+0100")
+        assert parsed is not None
+        assert parsed.utcoffset() == timedelta(hours=1)
+
+    def test_garbage_is_none(self):
+        assert threats_router._parse_event_time("not-a-date") is None
+        assert threats_router._parse_event_time("") is None
+        assert threats_router._parse_event_time(None) is None
+
+    def test_stale_boundary(self):
+        now = datetime.now(timezone.utc)
+        old = now - timedelta(seconds=threats_router._MAX_EVENT_AGE_SECONDS + 1)
+        fresh = now - timedelta(seconds=10)
+        assert threats_router._is_stale_event(old, now) is True
+        assert threats_router._is_stale_event(fresh, now) is False
+        assert threats_router._is_stale_event(None, now) is False
+
+
+class TestFalcoWebhookFailClosed:
+    """Webhook auth failures — independent of the replay-window tests."""
+
+    PAYLOAD_DICT = {
+        "output": "File opened for writing",
+        "priority": "Warning",
+        "rule": "Write below binary dir",
+        "time": _falco_time(),
+    }
+
+    @patch("routers.threats.ThreatService")
+    def test_publish_falco_event_rejected_without_secret(self, mock_service_cls, monkeypatch):
+        """Falco webhook is fail-closed: 503 when FALCO_WEBHOOK_SECRET is not set."""
+        monkeypatch.delenv("FALCO_WEBHOOK_SECRET", raising=False)
+        mock_instance = MagicMock()
+        mock_service_cls.return_value = mock_instance
+        mock_instance.publish_falco_event = AsyncMock()
+
+        resp = client.post("/api/threats/falco", json=self.PAYLOAD_DICT)
+        assert resp.status_code == 503, f"Expected 503, got {resp.status_code}"
+        mock_instance.publish_falco_event.assert_not_awaited()
 
     @patch("routers.threats.ThreatService")
     def test_publish_falco_event_with_invalid_signature(self, mock_service_cls):
@@ -680,6 +792,29 @@ class TestRealClientIp:
         assert real_client_ip(req) == "127.0.0.1"
         # Empty value is falsy -> same fallback.
         req2 = SimpleNamespace(headers={"X-Real-IP": ""}, client=SimpleNamespace(host="127.0.0.1"))
+        assert real_client_ip(req2) == "127.0.0.1"
+
+    def test_distrusted_proxy_headers_fall_back_to_peer(self, monkeypatch):
+        """With TRUST_PROXY_HEADERS disabled, client-set X-Real-IP is ignored.
+
+        Model of a backend reachable directly by untrusted clients (no nginx
+        in front): the header is fully client-writable, so keying on it would
+        let attackers rotate it to reset every rate limit.
+        """
+        monkeypatch.setattr(
+            "dependencies.get_settings",
+            lambda: Settings(API_KEY="test-key", TRUST_PROXY_HEADERS=False),
+        )
+        req = SimpleNamespace(
+            headers={"X-Real-IP": "attacker-chosen-1"},
+            client=SimpleNamespace(host="127.0.0.1"),
+        )
+        # Header rotation does not move the key — the socket peer is used.
+        assert real_client_ip(req) == "127.0.0.1"
+        req2 = SimpleNamespace(
+            headers={"X-Real-IP": "attacker-chosen-2"},
+            client=SimpleNamespace(host="127.0.0.1"),
+        )
         assert real_client_ip(req2) == "127.0.0.1"
 
 

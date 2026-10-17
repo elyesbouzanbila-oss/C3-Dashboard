@@ -26,7 +26,7 @@ async def list_rbac_bindings(
         logger.warning(f"RBAC query failed: {e}")
         return fallback_response(
             {"status": "mock", "data": MOCK_RBAC},
-            {"status": "error", "data": [], "error": str(e)},
+            {"status": "error", "data": [], "error": "Request failed — see server logs for details"},
         )
 
 
@@ -42,5 +42,5 @@ async def list_privileged_pods(
         logger.warning(f"Privileged pod query failed: {e}")
         return fallback_response(
             {"status": "mock", "data": MOCK_PRIVILEGED},
-            {"status": "error", "data": [], "error": str(e)},
+            {"status": "error", "data": [], "error": "Request failed — see server logs for details"},
         )

@@ -14,6 +14,11 @@ spec:
       labels:
         app: dashboard-redis
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
       # No nodeSelector — Redis is a stateless cache that can run on any node.
       volumes:
         - name: redis-data

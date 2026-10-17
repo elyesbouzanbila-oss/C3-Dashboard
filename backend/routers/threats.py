@@ -2,6 +2,9 @@ import hashlib
 import hmac
 import json
 import asyncio
+import re
+from datetime import datetime, timezone
+from typing import Optional
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
@@ -20,6 +23,97 @@ logger = get_logger(__name__)
 _NOISY_RULES = frozenset({
     "Contact K8S API Server From Container",
 })
+
+# ── Replay protection ───────────────────────────────────────────
+# The webhook requires a valid HMAC signature, but a captured request can
+# still be re-sent verbatim (the signature is valid forever). Two bounded
+# defenses that need no protocol change on the falcosidekick side:
+#
+# 1. Signature dedupe: identical signed bodies within this window are
+#    rejected (a real Falco event is never byte-identical in practice).
+_REPLAY_DEDUPE_TTL_SECONDS = 60
+# 2. Stale-event drop: events carrying a parseable RFC3339/epoch timestamp
+#    older than this are discarded (bounds replaying captured history).
+#    Unparseable timestamps fail OPEN (event is accepted) — the HMAC gate
+#    remains the primary control.
+_MAX_EVENT_AGE_SECONDS = 15 * 60
+
+
+def _parse_event_time(value: object) -> Optional[datetime]:
+    """Parse a Falco event timestamp into an aware UTC datetime, or None.
+
+    Accepts RFC3339/ISO-8601 strings (incl. nanosecond precision, which
+    datetime.fromisoformat rejects) and unix epoch seconds/milliseconds.
+    """
+    if not isinstance(value, (str, int, float)):
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            seconds = value / 1000 if value > 1e11 else float(value)
+            return datetime.fromtimestamp(seconds, tz=timezone.utc)
+        except (ValueError, OverflowError, OSError):
+            return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        # Normalise: trim fractional seconds to 6 digits (fromisoformat's
+        # limit) and coerce Z / ±HHMM offsets into the ±HH:MM form.
+        m = re.match(
+            r"^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})(?:\.(\d{1,12}))?(Z|z|[+-]\d{2}:?\d{2})?$",
+            text,
+        )
+        if m:
+            frac = ((m.group(2) or "")[:6]).ljust(6, "0")
+            tz_part = m.group(3) or ""
+            if tz_part in ("Z", "z", ""):
+                tz_part = "+00:00"
+            elif ":" not in tz_part:
+                tz_part = f"{tz_part[:3]}:{tz_part[3:]}"
+            dt = datetime.fromisoformat(f"{m.group(1)}.{frac}{tz_part}")
+        else:
+            dt = datetime.fromisoformat(text)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except ValueError:
+        # Epoch as string
+        try:
+            num = float(text)
+            seconds = num / 1000 if num > 1e11 else num
+            return datetime.fromtimestamp(seconds, tz=timezone.utc)
+        except ValueError:
+            return None
+
+
+def _is_stale_event(event_time: Optional[datetime], now: datetime) -> bool:
+    """True when the event timestamp is parseable and older than the window."""
+    if event_time is None:
+        return False
+    return (now - event_time).total_seconds() > _MAX_EVENT_AGE_SECONDS
+
+
+async def _seen_signature_before(settings: Settings, signature: str) -> bool:
+    """Mark an HMAC signature as seen; True if it had been seen already.
+
+    Backed by Redis SET NX EX so the check is atomic and windowed. Fails
+    OPEN (returns False) when Redis is unavailable — dedupe is defense in
+    depth; the HMAC gate and NetworkPolicy remain the primary controls.
+    """
+    try:
+        from services.threat_service import ThreatService
+        import redis.asyncio as aredis
+
+        client = aredis.Redis(connection_pool=ThreatService.get_pool(settings))
+        fingerprint = hashlib.sha256(signature.encode()).hexdigest()
+        key = f"falco:seen-sig:{fingerprint}"
+        # set(..., nx=True) returns True when the key was newly written;
+        # None means the key existed — i.e. we have seen this signature.
+        newly_set = await client.set(key, 1, nx=True, ex=_REPLAY_DEDUPE_TTL_SECONDS)
+        return newly_set is None
+    except Exception as exc:  # pragma: no cover — exercised only with Redis down
+        logger.warning(f"Falco replay dedupe unavailable (Redis): {exc}")
+        return False
 
 
 def _parse_json_objects(text: str) -> list[dict]:
@@ -91,9 +185,18 @@ async def falco_webhook(
     body = await request.body()
     text = body.decode(errors="replace")
 
-    # Signature check — read the raw bytes before parsing
+    # Signature check — read the raw bytes before parsing.
+    # Fail closed: if a webhook secret is configured, a valid signature is
+    # mandatory. If no secret is configured at all, reject every event so
+    # operators must explicitly opt in to unauthenticated ingestion.
     if settings.FALCO_WEBHOOK_SECRET:
         sig = request.headers.get("X-Falco-Signature", "")
+        if not sig:
+            logger.warning("Falco webhook rejected: missing signature")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing Falco signature",
+            )
         expected = hmac.new(
             settings.FALCO_WEBHOOK_SECRET.encode(),
             body,
@@ -105,16 +208,32 @@ async def falco_webhook(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid Falco signature",
             )
+    else:
+        logger.warning(
+            "Falco webhook rejected: FALCO_WEBHOOK_SECRET is not set — "
+            "refusing unsigned events (fail closed)"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Falco webhook secret not configured",
+        )
+
+    # Raise on replay: a duplicate of a batch signed within the dedupe window.
+    if await _seen_signature_before(settings, expected):
+        logger.warning("Falco webhook rejected: signature processed recently (replay protection)")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Duplicate event batch (replay protection)",
+        )
 
     # Parse one or more JSON objects from the body
     # Falco may batch events or send NDJSON (newline-delimited JSON)
     decoded_events = _parse_json_objects(text)
 
     logger.info(f"Falco body: {len(body)} bytes, {len(decoded_events)} decoded objects")
-    logger.info(f"Falco raw body (first 300 chars): {text[:300]!r}")
 
     if not decoded_events:
-        logger.error(f"No valid JSON objects found in Falco body: {text[:500]}")
+        logger.error(f"No valid JSON objects found in Falco body ({len(body)} bytes): {text[:200]!r}")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="No valid JSON objects in request body",
@@ -133,6 +252,8 @@ async def falco_webhook(
     service = ThreatService(settings)
     count = 0
     filtered = 0
+    filtered_stale = 0
+    now_utc = datetime.now(timezone.utc)
     for idx, raw in enumerate(decoded_events):
         # Skip non-dict values (numbers, strings, etc.) and empty objects
         if not isinstance(raw, dict) or not raw:
@@ -143,6 +264,14 @@ async def falco_webhook(
         # Suppress known-noise rules that are expected behaviour in a K8s cluster
         if rule in _NOISY_RULES:
             filtered += 1
+            continue
+
+        # Drop stale events — re-sent (replayed) or hopelessly backlogged
+        # batches carrying an old parseable timestamp. Bounded replay window.
+        if _is_stale_event(_parse_event_time(raw.get("time")), now_utc):
+            filtered_stale += 1
+            logger.debug(f"Event {idx} dropped: timestamp '{raw.get('time')}' older than "
+                         f"{_MAX_EVENT_AGE_SECONDS // 60} minutes")
             continue
 
         try:
@@ -161,7 +290,11 @@ async def falco_webhook(
 
     if filtered:
         logger.info(f"Filtered {filtered} noisy event(s) (rules: {', '.join(_NOISY_RULES)})")
-    return {"status": "ok", "events_processed": count, "events_filtered": filtered}
+    if filtered_stale:
+        logger.info(f"Filtered {filtered_stale} stale event(s) (older than "
+                    f"{_MAX_EVENT_AGE_SECONDS // 60} minutes)")
+    return {"status": "ok", "events_processed": count, "events_filtered": filtered,
+            "events_filtered_stale": filtered_stale}
 
 
 history_limiter = Limiter(key_func=real_client_ip)
