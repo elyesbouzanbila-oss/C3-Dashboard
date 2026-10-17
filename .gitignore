@@ -26,3 +26,6 @@ k8s/secret.yaml
 k8s/secret-redis.yaml
 k8s/secret-groq.yaml
 k8s/secret-super-user.yaml
+
+# Playwright MCP session artifacts (screenshots, console/page snapshots)
+.playwright-mcp/
