@@ -31,3 +31,9 @@ k8s/secret-super-user.yaml
 
 # Playwright MCP session artifacts (screenshots, console/page snapshots)
 .playwright-mcp/
+
+# Graphify knowledge graph (generated; committed only when the user asks)
+graphify-out/
+
+# Local Claude Code instructions (user-specific; not for commit)
+CLAUDE.md
