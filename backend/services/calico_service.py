@@ -98,7 +98,9 @@ async def get_bgp_peers(api_client) -> List[Dict[str, Any]]:
             "peer_ip": spec.get("peerIP"),
             "peer_as_number": spec.get("asNumber"),
             "node_as_number": spec.get("nodeASNumber"),
-            "session_state": spec.get("sessionState", "unknown"),
+            # BGPPeer holds configuration only: live session state lives in
+            # BIRD/Felix metrics or a CalicoNodeStatus resource, not on the CRD.
+            "session_state": None,
         })
     return result
 

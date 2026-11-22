@@ -10,6 +10,11 @@ from services.logging_service import get_logger
 logger = get_logger(__name__)
 
 
+# Gauges that report the same cluster-wide value on every calico-node; summing
+# them multiplies the real number by the node count.
+CLUSTER_WIDE_METRICS = {"cluster_network_policies"}
+
+
 FELIX_METRICS_QUERIES = {
     "active_local_endpoints": "felix_active_local_endpoints",
     "cluster_network_policies": "felix_cluster_network_policies",
@@ -38,8 +43,8 @@ async def get_felix_metrics(settings: Settings) -> Dict[str, Any]:
                     values.append(val)
 
                 if values:
-                    # For single-value aggregations, sum across all calico-node instances
-                    result[key] = sum(values)
+                    # Per-node gauges/counters add up; cluster-wide gauges repeat.
+                    result[key] = max(values) if key in CLUSTER_WIDE_METRICS else sum(values)
             else:
                 result[key] = None
         except Exception as e:

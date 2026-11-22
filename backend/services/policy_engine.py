@@ -18,8 +18,8 @@ from services.utils import calico_selector_matches
 
 def _policy_selects_pod(policy: Dict[str, Any], pod: Dict[str, Any]) -> bool:
     """True when a policy's selector matches a pod (with namespace scoping)."""
-    selector = policy.get("selector", "")
-    if not selector or not calico_selector_matches(pod.get("labels", {}) or {}, selector):
+    # An empty Calico selector means all() — it selects every pod in scope.
+    if not calico_selector_matches(pod.get("labels", {}) or {}, policy.get("selector", "")):
         return False
     # A namespaced NetworkPolicy only applies to pods in its own namespace
     if policy.get("type") == "NetworkPolicy" and policy.get("namespace") != pod.get("namespace"):

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, Fragment } from 'react'
 import { Icon } from './Icon'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || ''
@@ -260,14 +260,14 @@ function renderContent(text: string): React.ReactNode {
         // (strings.replace() with an element would render "[object Object]").
         const lines = bp.split('\n')
         return (
-          <React.Fragment key={`${i}-${j}-${k}`}>
+          <Fragment key={`${i}-${j}-${k}`}>
             {lines.map((line, li) => (
-              <React.Fragment key={li}>
+              <Fragment key={li}>
                 {line}
                 {li < lines.length - 1 && <br />}
-              </React.Fragment>
+              </Fragment>
             ))}
-          </React.Fragment>
+          </Fragment>
         )
       })
     })

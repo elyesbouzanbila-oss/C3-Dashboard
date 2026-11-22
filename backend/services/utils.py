@@ -382,8 +382,8 @@ def compute_policy_coverage(pods: list, policies: list) -> list:
         pod_ns = pod.get("namespace", "")
         selecting = []
         for policy in policies:
-            policy_selector = policy.get("selector", "")
-            if not policy_selector or not calico_selector_matches(pod_labels, policy_selector):
+            # An empty Calico selector means all() — it selects every pod in scope.
+            if not calico_selector_matches(pod_labels, policy.get("selector", "")):
                 continue
             # Namespace-scoping: NetworkPolicy only applies to pods in the same namespace
             if policy.get("type") == "NetworkPolicy" and policy.get("namespace") != pod_ns:

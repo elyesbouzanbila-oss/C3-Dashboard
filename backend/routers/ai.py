@@ -24,6 +24,31 @@ router = APIRouter(prefix="/api/ai", tags=["ai"])
 # probing) without a real user noticing. Keyed on the real client IP.
 ai_limiter = Limiter(key_func=real_client_ip)
 
+# ── Input guardrails ───────────────────────────────────────────
+# Chat history is client-supplied and therefore untrusted: cap its size and
+# allow only user/assistant turns, so a request cannot replace the system
+# prompt (role="system") or inflate the prompt into a cost amplification.
+ALLOWED_ROLES = {"user", "assistant"}
+MAX_HISTORY_MESSAGES = 20
+MAX_MESSAGE_CHARS = 8_000
+
+
+def _safe_messages(raw: Any) -> List[Dict[str, str]]:
+    """Return the last MAX_HISTORY_MESSAGES valid user/assistant messages, each capped."""
+    if not isinstance(raw, list):
+        return []
+    kept: List[Dict[str, str]] = []
+    for msg in raw:
+        if not isinstance(msg, dict):
+            continue
+        role, content = msg.get("role"), msg.get("content")
+        if role not in ALLOWED_ROLES or not isinstance(content, str):
+            continue
+        content = content.strip()
+        if content:
+            kept.append({"role": role, "content": content[:MAX_MESSAGE_CHARS]})
+    return kept[-MAX_HISTORY_MESSAGES:]
+
 
 @router.post("/chat")
 @ai_limiter.limit("20/minute")
@@ -44,7 +69,7 @@ async def ai_chat(
     Returns:
         { reply: str }
     """
-    messages: List[Dict[str, str]] = body.get("messages", [])
+    messages: List[Dict[str, str]] = _safe_messages(body.get("messages"))
     use_tools = bool(body.get("context", True))
 
     if not messages:

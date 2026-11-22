@@ -69,9 +69,15 @@ async def verify_super_user(request: Request, auth: AuthRequest) -> AuthResponse
     from config import get_settings
     settings = get_settings()
     if not settings.SUPER_USER_PASSWORD:
-        # No password configured = all operations allowed
-        return AuthResponse(authenticated=True, message="No super user password configured")
-    actor = request.client.host if request.client else "unknown"
+        # Mirror require_super_user: with no password configured, writes are
+        # refused outside demo mode — so don't report the session as unlocked.
+        if not is_mock_mode():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Write operations require SUPER_USER_PASSWORD to be configured",
+            )
+        return AuthResponse(authenticated=True, message="Demo mode — writes allowed without a password")
+    actor = real_client_ip(request)
     if auth_service.passwords_match(auth.password, settings.SUPER_USER_PASSWORD):
         token = auth_service.create_token(settings.SUPER_USER_PASSWORD)
         await log_audit(actor, "auth attempt", "super-user login", success=True)
@@ -135,7 +141,7 @@ async def require_super_user(
         # the operator explicitly opted into demo mode (K8S_MODE=mock). Reads
         # stay allowed (and audited) so the dashboard remains readable.
         if is_write and not is_mock_mode():
-            actor = request.client.host if request.client else "unknown"
+            actor = real_client_ip(request)
             action = _audit_action(request)
             target = await _audit_target(request)
             await log_audit(
@@ -149,7 +155,7 @@ async def require_super_user(
         if not is_write:
             yield "no-password-mode"
             return
-        actor = request.client.host if request.client else "unknown"
+        actor = real_client_ip(request)
         action = _audit_action(request)
         target = await _audit_target(request)
         try:
@@ -162,7 +168,7 @@ async def require_super_user(
 
     if not auth_service.verify_token(x_super_user_token, settings.SUPER_USER_PASSWORD):
         if is_write:
-            actor = request.client.host if request.client else "unknown"
+            actor = real_client_ip(request)
             await log_audit(
                 actor,
                 _audit_action(request),
@@ -179,7 +185,7 @@ async def require_super_user(
         yield "super-user"
         return
 
-    actor = request.client.host if request.client else "unknown"
+    actor = real_client_ip(request)
     action = _audit_action(request)
     target = await _audit_target(request)
     try:

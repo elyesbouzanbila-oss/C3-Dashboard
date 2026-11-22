@@ -461,6 +461,21 @@ class TestComputePolicyCoverage:
         assert default["exposed"] is True
         assert default["selecting_policies"] == []
 
+    def test_empty_selector_selects_all_pods_in_namespace(self):
+        """An empty Calico selector means all() — scoped to its namespace."""
+        result = compute_policy_coverage(
+            [
+                {"name": "prod-pod", "namespace": "production", "labels": {}},
+                {"name": "def-pod", "namespace": "default", "labels": {}},
+            ],
+            [{"name": "prod-default-deny", "namespace": "production",
+              "type": "NetworkPolicy", "selector": None}],
+        )
+        prod = next(r for r in result if r["pod_name"] == "prod-pod")
+        assert prod["exposed"] is False
+        assert prod["selecting_policies"] == ["prod-default-deny"]
+        assert next(r for r in result if r["pod_name"] == "def-pod")["exposed"] is True
+
     def test_globalnetworkpolicy_crosses_namespace(self):
         """GlobalNetworkPolicy should match pods in ALL namespaces."""
         result = compute_policy_coverage(

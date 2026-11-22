@@ -94,7 +94,8 @@ class TestAuthEndpoint:
         assert body["token"]
         assert auth_service.verify_token(body["token"], "s3cret-password") is True
 
-    def test_no_password_mode_authenticates_without_token(self):
+    def test_no_password_mode_authenticates_without_token(self, monkeypatch):
+        monkeypatch.setenv("K8S_MODE", "mock")
         with patch("config.get_settings", return_value=Settings(API_KEY="test-key")):
             resp = client.post(
                 "/api/config/auth",
@@ -105,6 +106,18 @@ class TestAuthEndpoint:
         body = resp.json()
         assert body["authenticated"] is True
         assert body.get("token") is None
+
+    def test_no_password_outside_demo_mode_is_503(self, monkeypatch):
+        """No password + no demo mode: /auth must not claim an unlocked session
+        that the write path would then refuse with 503."""
+        monkeypatch.delenv("K8S_MODE", raising=False)
+        with patch("config.get_settings", return_value=Settings(API_KEY="test-key")):
+            resp = client.post(
+                "/api/config/auth",
+                json={"password": "anything"},
+                headers={"X-Real-IP": "198.51.100.24"},
+            )
+        assert resp.status_code == 503, resp.text[:200]
 
 
 class TestRequireSuperUser:

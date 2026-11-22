@@ -161,6 +161,22 @@ class TestComputeWorkloadEndpoints:
         # allow-frontend-ingress lives in 'production'; pending-1 is in 'default'
         assert pending["exposed"] is True
 
+    def test_policy_without_selector_selects_all_pods_in_scope(self):
+        """An empty Calico selector means all() — scoped for NetworkPolicy."""
+        policies = [{
+            "name": "prod-default-deny",
+            "namespace": "production",
+            "type": "NetworkPolicy",
+            "selector": None,
+            "ingress": [],
+            "egress": [],
+        }]
+        endpoints = compute_workload_endpoints(sample_pods(), policies)
+        prod = [e for e in endpoints if e["namespace"] == "production"]
+        assert all(e["exposed"] is False for e in prod)
+        pending = next(e for e in endpoints if e["pod_name"] == "pending-1")
+        assert pending["exposed"] is True
+
     def test_empty_inputs(self):
         assert compute_workload_endpoints([], []) == []
 
